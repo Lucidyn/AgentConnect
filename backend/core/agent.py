@@ -234,11 +234,19 @@ class Agent(ABC):
                     agent=self.name,
                     error=str(exc),
                 )
+                assignment_id = message.metadata.get("assignment_id", "")
+                is_worker_assignment = (
+                    message.from_agent == PLANNER and bool(assignment_id)
+                )
                 await self.send(
                     message.from_agent,
                     f"Error: {exc}",
                     message_type=MessageType.ERROR,
+                    metadata={"assignment_id": assignment_id},
                 )
+                if is_worker_assignment:
+                    await self._ack_message(message.id)
+                    continue
                 if self._current_task_id and self.task_store:
                     await self.task_store.mark_failed(self._current_task_id, str(exc))
                     if self.services.on_task_finished:

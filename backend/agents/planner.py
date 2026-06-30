@@ -7,7 +7,10 @@ import logging
 import re
 from uuid import uuid4
 
+from backend.config import settings
+from backend.constants import CODER, PLANNER, REVIEWER
 from backend.core.agent import Agent
+from backend.core.plan_dispatch import build_assignment_task
 from backend.models.message import Message, MessageType
 from backend.models.plan import AssignmentStatus, TaskAssignment, TaskPlan
 from backend.models.task import TaskStatus
@@ -61,9 +64,16 @@ class PlannerAgent(Agent):
         if message.from_agent == "User":
             if message.content.startswith("approval:"):
                 return None
+            existing = await self._load_plan()
+            if existing and not existing.all_done() and not existing.has_failed():
+                return await self._resume_plan(existing)
             return await self._start_plan(message.content)
         if message.metadata.get("needs_approval"):
             return await self._request_approval(message)
+        if message.metadata.get("needs_retry"):
+            return await self._on_retry_request(message)
+        if message.message_type == MessageType.ERROR:
+            return await self._on_agent_failed(message)
         if message.message_type in (MessageType.RESPONSE, MessageType.TASK):
             return await self._on_agent_done(message)
         return None
@@ -103,6 +113,115 @@ class PlannerAgent(Agent):
             f"计划已生成：{plan.summary}\n"
             f"共 {len(plan.assignments)} 个子任务，已调度 {dispatched} 个。"
         )
+
+    async def _resume_plan(self, plan: TaskPlan) -> str:
+        if self.task_store:
+            await self.task_store.update_status(self._current_task_id, TaskStatus.RUNNING)
+
+        ctx = await self._load_ctx()
+        plan.reset_running_to_pending()
+        dispatched = await self._dispatch_ready(plan, ctx)
+        await self._persist_plan(plan)
+
+        return (
+            f"任务已恢复：{plan.summary}\n"
+            f"已重新调度 {dispatched} 个子任务。"
+        )
+
+    async def _fail_task(self, error: str) -> None:
+        if self.task_store:
+            await self.task_store.mark_failed(self._current_task_id, error)
+        if self.services.on_task_finished:
+            await self.services.on_task_finished(self._current_task_id)
+
+    async def _on_agent_failed(self, message: Message) -> str | None:
+        plan = await self._load_plan()
+        if not plan:
+            await self._fail_task(message.content)
+            return None
+
+        assignment_id = message.metadata.get("assignment_id", "")
+        assignment = plan.find_assignment(
+            assignment_id=assignment_id, agent_name=message.from_agent
+        )
+        if not assignment:
+            await self._fail_task(f"Agent error (unknown assignment): {message.content}")
+            return None
+
+        if assignment.status not in (AssignmentStatus.RUNNING, AssignmentStatus.PENDING):
+            return None
+
+        ctx = await self._load_ctx()
+        retries = ctx.assignment_retries.get(assignment.id, 0)
+        max_retries = settings.assignment_max_retries
+
+        logger.warning(
+            "[%s] assignment %s failed (retry %d/%d): %s",
+            message.from_agent,
+            assignment.id,
+            retries,
+            max_retries,
+            message.content[:200],
+        )
+
+        if retries < max_retries:
+            ctx.assignment_retries[assignment.id] = retries + 1
+            assignment.status = AssignmentStatus.PENDING
+            await self._save_ctx(ctx)
+            await self._persist_plan(plan)
+            await self._dispatch_ready(plan, ctx)
+            await self._persist_plan(plan)
+            return None
+
+        assignment.status = AssignmentStatus.FAILED
+        await self._persist_plan(plan)
+        await self._fail_task(
+            f"子任务 {assignment.id} ({assignment.agent}) 失败：{message.content}"
+        )
+        return None
+
+    async def _on_retry_request(self, message: Message) -> str | None:
+        """Reviewer (or other agent) requests re-running an upstream assignment."""
+        plan = await self._load_plan()
+        if not plan:
+            return None
+
+        reviewer_id = message.metadata.get("assignment_id", "")
+        reviewer_asg = plan.find_assignment(assignment_id=reviewer_id)
+        if not reviewer_asg:
+            reviewer_asg = plan.find_assignment(agent_name=message.from_agent)
+
+        ctx = await self._load_ctx()
+        ctx.retry_feedback = message.content
+        await self._save_ctx(ctx)
+
+        coder_asg = self._find_upstream_coder(plan, reviewer_asg)
+        if not coder_asg:
+            logger.warning("Retry requested but no Coder assignment found in plan")
+            return None
+
+        plan.reset_to_pending(coder_asg.id)
+        if self.task_store:
+            await self.task_store.update_status(self._current_task_id, TaskStatus.RUNNING)
+
+        await self._persist_plan(plan)
+        await self._dispatch_ready(plan, ctx)
+        await self._persist_plan(plan)
+        return None
+
+    @staticmethod
+    def _find_upstream_coder(
+        plan: TaskPlan, from_assignment: TaskAssignment | None
+    ) -> TaskAssignment | None:
+        if from_assignment:
+            for dep_id in reversed(from_assignment.depends_on):
+                dep = plan.find_assignment(assignment_id=dep_id)
+                if dep and dep.agent == CODER:
+                    return dep
+        for assignment in reversed(plan.assignments):
+            if assignment.agent == CODER:
+                return assignment
+        return None
 
     async def _request_approval(self, message: Message) -> str | None:
         ctx = await self._load_ctx()
@@ -192,8 +311,9 @@ class PlannerAgent(Agent):
         ctx.results[assignment.id] = message.content
         if assignment.agent == "Research":
             ctx.research_result = message.content
-        elif assignment.agent == "Coder":
+        elif assignment.agent == CODER:
             ctx.coder_result = message.content
+            ctx.retry_feedback = ""
         elif assignment.agent == "Vision":
             ctx.vision_result = message.content
         await self._save_ctx(ctx)
@@ -207,28 +327,36 @@ class PlannerAgent(Agent):
                 await self.services.on_task_finished(self._current_task_id)
             return None
 
+        await self._redispatch_running_dependents(plan, ctx, assignment.id)
         await self._persist_plan(plan)
         await self._dispatch_ready(plan, ctx)
         await self._persist_plan(plan)
         return None
 
+    async def _redispatch_running_dependents(
+        self, plan: TaskPlan, ctx: TaskContext, completed_id: str
+    ) -> None:
+        """Re-send to RUNNING assignments whose dependencies just completed (retry path)."""
+        done_ids = {a.id for a in plan.assignments if a.status == AssignmentStatus.DONE}
+        for assignment in plan.assignments:
+            if assignment.status != AssignmentStatus.RUNNING:
+                continue
+            if completed_id not in assignment.depends_on:
+                continue
+            if not all(dep in done_ids for dep in assignment.depends_on):
+                continue
+            task = build_assignment_task(assignment, plan, ctx)
+            await self.send(
+                assignment.agent,
+                task,
+                message_type=MessageType.TASK,
+                metadata={"assignment_id": assignment.id},
+            )
+
     async def _dispatch_ready(self, plan: TaskPlan, ctx: TaskContext) -> int:
         count = 0
         for assignment in plan.pending_ready():
-            task = assignment.task
-            if assignment.agent == "Coder":
-                parts = []
-                if ctx.research_result:
-                    parts.append(f"调研结果：\n{ctx.research_result}")
-                if ctx.vision_result:
-                    parts.append(f"视觉分析：\n{ctx.vision_result}")
-                for aid, content in ctx.results.items():
-                    if content and content not in (ctx.research_result, ctx.vision_result):
-                        parts.append(content)
-                if parts:
-                    task = f"{task}\n\n" + "\n\n".join(parts)
-            elif assignment.agent == "Reviewer" and ctx.coder_result:
-                task = f"请审查以下代码：\n{ctx.coder_result}"
+            task = build_assignment_task(assignment, plan, ctx)
             assignment.status = AssignmentStatus.RUNNING
             await self.send(
                 assignment.agent,
@@ -339,8 +467,18 @@ class PlannerAgent(Agent):
             assignments = [TaskAssignment.model_validate(a) for a in fb["assignments"]]
             data = fb
 
-        return TaskPlan(
+        plan = TaskPlan(
             summary=data.get("summary", ""),
             steps=data.get("steps", []),
             assignments=assignments,
         )
+        errors = plan.validate()
+        if errors:
+            logger.warning("Invalid plan from LLM (%s), using fallback", "; ".join(errors))
+            fb = self._fallback_plan(task)
+            return TaskPlan(
+                summary=fb.get("summary", ""),
+                steps=fb.get("steps", []),
+                assignments=[TaskAssignment.model_validate(a) for a in fb["assignments"]],
+            )
+        return plan

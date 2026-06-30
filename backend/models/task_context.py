@@ -15,6 +15,8 @@ class TaskContext(BaseModel):
     approval_message: str = ""
     approval_assignment_id: str = ""
     processed_message_ids: list[str] = []
+    assignment_retries: dict[str, int] = {}
+    retry_feedback: str = ""
 
     @staticmethod
     def plan_from_record(plan_data: dict | None) -> TaskPlan | None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.constants import PLANNER, REVIEWER
+from backend.constants import PLANNER
 from backend.core.agent import Agent
 from backend.models.message import Message, MessageType
 
@@ -46,12 +46,6 @@ class CoderAgent(Agent):
             await self.reply_to_planner(message, result)
             return None
 
-        if message.from_agent == REVIEWER:
-            reviewer = self.registry.get(REVIEWER)
-            target = reviewer.name if reviewer else REVIEWER
-            await self.send(target, f"已修改：\n{self._fixed_code()}", message_type=MessageType.TASK)
-            return None
-
         return result
 
     def _mock_code(self, task: str) -> str:
@@ -68,8 +62,12 @@ class CoderAgent(Agent):
             )
         return (
             f"```python\n# {task[:60]}\nfrom fastapi import FastAPI\n\n"
-            "app = FastAPI()\n\n@app.get('/health')\ndef health():\n"
-            "    return {'status': 'ok'}\n```"
+            "app = FastAPI()\n\n"
+            "@app.get('/health')\ndef health():\n"
+            "    try:\n"
+            "        return {'status': 'ok'}\n"
+            "    except Exception as e:\n"
+            "        return {'status': 'error', 'detail': str(e)}\n```"
         )
 
     def _fixed_code(self) -> str:

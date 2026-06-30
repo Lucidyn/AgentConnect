@@ -156,7 +156,8 @@ agent_connect/
 - **Runtime 适配**：`native` / `openai_agents` / `langgraph`，manifest 按 Agent 指定
 - **Bridge 基类**：`OpenAIAgentsBridge`、`LangGraphBridge` + 示例插件
 - **NativeRuntime**：统一 Agent 挂载/卸载
-- **任务**：幂等提交、取消、SSE 状态流、Timeline API
+- **任务编排**：DAG 依赖校验、子任务失败重试、重启恢复 RUNNING 子任务
+- **调度协议**：Reviewer 重试经 Planner 统一调度，上游结果按 `depends_on` 注入
 - **可观测性**：`/traces/{id}`、死信查询与重投
 - **消息去重**：Agent 按 `message.id` 幂等；带 `task_id` 时写入 task context 持久化
 - **可选 API Key** 鉴权

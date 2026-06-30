@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from backend.constants import PLANNER, REVIEWER
 from backend.core.agent import Agent
 from backend.models.message import Message, MessageType
 
@@ -20,7 +21,7 @@ SYSTEM_PROMPT = """你是 Reviewer Agent，负责代码审查和质量把关。
 
 
 class ReviewerAgent(Agent):
-    name = "Reviewer"
+    name = REVIEWER
     role = "reviewer"
     capabilities = ["code_review", "quality_assurance", "security_audit"]
     description = "代码审查、质量检查、安全审计"
@@ -42,35 +43,26 @@ class ReviewerAgent(Agent):
 
         if failed and retries < 1:
             self.remember("retry_count", retries + 1)
-            coder = self.registry.best_for_task("coding") or self.registry.get("Coder")
-            target = coder.name if coder else "Coder"
             await self.send(
-                target,
+                PLANNER,
                 f"审查发现问题，请修改：\n{result}",
-                message_type=MessageType.TASK,
-                metadata={"assignment_id": assignment_id},
+                message_type=MessageType.RESPONSE,
+                metadata={"needs_retry": True, "assignment_id": assignment_id},
             )
             return None
 
         self.remember("retry_count", 0)
-        planner = self.registry.get("Planner")
-        target = planner.name if planner else "Planner"
 
         if failed:
             await self.send(
-                target,
+                PLANNER,
                 result,
                 message_type=MessageType.RESPONSE,
                 metadata={"needs_approval": True, "assignment_id": assignment_id},
             )
             return None
 
-        await self.send(
-            target,
-            result,
-            message_type=MessageType.RESPONSE,
-            metadata={"assignment_id": assignment_id},
-        )
+        await self.reply_to_planner(message, result)
         return None
 
     def _mock_review(self, content: str) -> str:
