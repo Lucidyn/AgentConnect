@@ -1,0 +1,48 @@
+# Agent & tool plugins — add entries here without editing platform code.
+# Set enabled: false to disable. Override via ENABLED_AGENTS / ENABLED_TOOLS env.
+
+agents:
+  - name: planner
+    module: backend.agents.planner
+    class: PlannerAgent
+    enabled: true
+  - name: research
+    module: backend.agents.research
+    class: ResearchAgent
+    enabled: true
+    tools: [arxiv, github]
+  - name: coder
+    module: backend.agents.coder
+    class: CoderAgent
+    enabled: true
+  - name: reviewer
+    module: backend.agents.reviewer
+    class: ReviewerAgent
+    enabled: true
+  - name: vision
+    module: plugins.vision.agent
+    class: VisionAgent
+    enabled: false
+    runtime: native
+    llm_model: PaddleOCR + YOLO
+  - name: summarizer
+    module: plugins.openai_agents.summarizer
+    class: SummarizerAgent
+    enabled: false
+    runtime: openai_agents
+    model: gpt-4o-mini
+  - name: router
+    module: plugins.langgraph.router
+    class: RouterAgent
+    enabled: false
+    runtime: langgraph
+
+tools:
+  - name: arxiv
+    module: backend.tools.arxiv
+    class: ArxivTool
+    enabled: true
+  - name: github
+    module: backend.tools.github
+    class: GitHubTool
+    enabled: true

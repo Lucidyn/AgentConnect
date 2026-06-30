@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent Connect — 多智能体协作平台</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --planner: #f59e0b;
+      --research: #3b82f6;
+      --coder: #10b981;
+      --reviewer: #ef4444;
+      --vision: #8b5cf6;
+      --user: #a78bfa;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 1.5rem 2rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    header h1 span { color: var(--accent); }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    .status-dot.online { background: #22c55e; }
+    .status-dot.offline { background: #ef4444; }
+
+    main {
+      display: grid;
+      grid-template-columns: 280px 1fr 320px;
+      height: calc(100vh - 65px);
+    }
+
+    .panel {
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 1rem;
+    }
+    .panel:last-child { border-right: none; border-left: 1px solid var(--border); }
+
+    .panel h2 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    .agent-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      border-left: 3px solid var(--accent);
+    }
+    .agent-card[data-role="planner"] { border-left-color: var(--planner); }
+    .agent-card[data-role="researcher"] { border-left-color: var(--research); }
+    .agent-card[data-role="developer"] { border-left-color: var(--coder); }
+    .agent-card[data-role="reviewer"] { border-left-color: var(--reviewer); }
+    .agent-card[data-role="vision"] { border-left-color: var(--vision); }
+
+    .agent-card .name { font-weight: 600; font-size: 0.9rem; }
+    .agent-card .role { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    .agent-card .caps {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;
+    }
+    .agent-card .cap {
+      font-size: 0.65rem;
+      background: var(--bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--muted);
+    }
+    .agent-card .agent-status {
+      font-size: 0.7rem;
+      margin-top: 6px;
+      color: var(--muted);
+    }
+
+    .center-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .task-input {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 0.5rem;
+    }
+    .task-input input {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 1rem;
+      color: var(--text);
+      font-size: 0.9rem;
+      outline: none;
+    }
+    .task-input input:focus { border-color: var(--accent); }
+    .task-input button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 0.6rem 1.2rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .task-input button:hover { background: var(--accent-hover); }
+    .task-input button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .topology {
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      flex-shrink: 0;
+    }
+
+    .topo-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 2rem;
+    }
+
+    .topo-node {
+      width: 90px;
+      height: 50px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border: 2px solid var(--border);
+      background: var(--surface);
+      transition: all 0.3s;
+    }
+    .topo-node.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+      transform: scale(1.05);
+    }
+    .topo-node.planner { border-color: var(--planner); }
+    .topo-node.research { border-color: var(--research); }
+    .topo-node.coder { border-color: var(--coder); }
+    .topo-node.reviewer { border-color: var(--reviewer); }
+    .topo-node.vision { border-color: var(--vision); }
+
+    .topo-arrow {
+      color: var(--muted);
+      font-size: 1.2rem;
+      padding: 0.3rem 0;
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+    }
+
+    .msg {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.4rem;
+    }
+    .msg-route {
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .msg-route .from { color: var(--accent); }
+    .msg-route .arrow { color: var(--muted); margin: 0 4px; }
+    .msg-route .to { color: var(--accent-hover); }
+    .msg-time { font-size: 0.65rem; color: var(--muted); }
+    .msg-content {
+      font-size: 0.85rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+    .msg-type {
+      font-size: 0.6rem;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--muted);
+      margin-left: 6px;
+    }
+
+    .detail-section { margin-bottom: 1.5rem; }
+    .detail-section h3 {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+    .stat {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      padding: 0.4rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .stat .value { font-weight: 600; color: var(--accent); }
+
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 2rem;
+      font-size: 0.85rem;
+    }
+
+    .timeline { margin-top: 0.5rem; }
+    .tl-item {
+      display: flex;
+      gap: 8px;
+      font-size: 0.75rem;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .tl-time { color: var(--muted); min-width: 52px; }
+    .tl-route { color: var(--accent-hover); flex: 1; }
+
+    .approval-box {
+      display: none;
+      margin-top: 1rem;
+      padding: 0.75rem;
+      background: var(--surface);
+      border: 1px solid var(--reviewer);
+      border-radius: 8px;
+      font-size: 0.8rem;
+    }
+    .approval-box.show { display: block; }
+    .approval-box p { margin-bottom: 8px; color: var(--muted); max-height: 80px; overflow-y: auto; }
+    .approval-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .approval-btns button {
+      flex: 1;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+    .approval-btns button:hover { border-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span>Agent</span> Connect</h1>
+    <div id="connection-status">
+      <span class="status-dot offline" id="status-dot"></span>
+      <span id="status-text">连接中...</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="panel" id="agents-panel">
+      <h2>Agents</h2>
+      <div id="agents-list"><div class="empty">加载中...</div></div>
+    </div>
+
+    <div class="center-panel">
+      <div class="task-input">
+        <input
+          id="task-input"
+          type="text"
+          placeholder="输入任务，例如：写一个 PaddleOCR 服务"
+          value="写一个 PaddleOCR 服务"
+        />
+        <button id="submit-btn" onclick="submitTask()">提交任务</button>
+      </div>
+
+      <div class="topology">
+        <div class="topo-node planner" id="node-User">User</div>
+        <div class="topo-arrow">↓</div>
+        <div class="topo-node planner" id="node-Planner">Planner</div>
+        <div class="topo-arrow">↓</div>
+        <div class="topo-row">
+          <div class="topo-node research" id="node-Research">Research</div>
+          <div class="topo-node coder" id="node-Coder">Coder</div>
+          <div class="topo-node reviewer" id="node-Reviewer">Reviewer</div>
+        </div>
+      </div>
+
+      <div class="messages" id="messages">
+        <div class="empty">等待消息...</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>平台状态</h2>
+      <div class="detail-section">
+        <div class="stat"><span>Agent 数量</span><span class="value" id="stat-agents">-</span></div>
+        <div class="stat"><span>消息总数</span><span class="value" id="stat-messages">0</span></div>
+        <div class="stat"><span>LLM</span><span class="value" id="stat-llm">-</span></div>
+        <div class="stat"><span>当前任务</span><span class="value" id="stat-task">-</span></div>
+        <div class="stat"><span>消息总线</span><span class="value" id="stat-bus">Redis</span></div>
+      </div>
+      <h2>任务时间线</h2>
+      <div id="timeline" class="timeline"><div class="empty">提交任务后显示</div></div>
+
+      <div id="approval-box" class="approval-box">
+        <strong>等待人工审批</strong>
+        <p id="approval-msg"></p>
+        <div class="approval-btns">
+          <button onclick="approveTask('approve')">通过</button>
+          <button onclick="approveTask('retry')">退回修改</button>
+          <button onclick="approveTask('reject')">拒绝</button>
+        </div>
+      </div>
+
+      <h2 style="margin-top:1.5rem">快速任务</h2>
+      <div id="quick-tasks">
+        <button onclick="quickTask('查一下 YOLO 最新论文并实现检测服务')" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
+          YOLO 检测服务
+        </button>
+        <button onclick="quickTask('调研 Qwen-VL 多模态能力并写 Demo')" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
+          Qwen-VL Demo
+        </button>
+        <button onclick="quickTask('实现船舶图像识别 API')" style="width:100%;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
+          船舶识别 API
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let ws = null;
+    let messageCount = 0;
+    let taskSource = null;
+    let currentTaskId = null;
+    let timelineTimer = null;
+    const roleMap = {
+      planner: 'planner', researcher: 'research', developer: 'coder',
+      reviewer: 'reviewer', vision: 'vision',
+    };
+
+    function connect() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${proto}//${location.host}/ws/messages`);
+
+      ws.onopen = () => {
+        document.getElementById('status-dot').className = 'status-dot online';
+        document.getElementById('status-text').textContent = '已连接';
+      };
+
+      ws.onclose = () => {
+        document.getElementById('status-dot').className = 'status-dot offline';
+        document.getElementById('status-text').textContent = '已断开，重连中...';
+        setTimeout(connect, 3000);
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        addMessage(msg);
+        highlightNode(msg.from_agent);
+        highlightNode(msg.to_agent);
+      };
+    }
+
+    function highlightNode(name) {
+      const el = document.getElementById(`node-${name}`);
+      if (!el) return;
+      el.classList.add('active');
+      setTimeout(() => el.classList.remove('active'), 1500);
+    }
+
+    function addMessage(msg) {
+      const container = document.getElementById('messages');
+      if (container.querySelector('.empty')) container.innerHTML = '';
+
+      messageCount++;
+      document.getElementById('stat-messages').textContent = messageCount;
+
+      const div = document.createElement('div');
+      div.className = 'msg';
+      const time = new Date(msg.timestamp).toLocaleTimeString();
+      div.innerHTML = `
+        <div class="msg-header">
+          <div class="msg-route">
+            <span class="from">${msg.from_agent}</span>
+            <span class="arrow">→</span>
+            <span class="to">${msg.to_agent}</span>
+            <span class="msg-type">${msg.message_type}</span>
+          </div>
+          <span class="msg-time">${time}</span>
+        </div>
+        <div class="msg-content">${escapeHtml(msg.content)}</div>
+      `;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = text;
+      return d.innerHTML;
+    }
+
+    async function loadAgents() {
+      const res = await fetch('/agents');
+      const data = await res.json();
+      const list = document.getElementById('agents-list');
+      list.innerHTML = '';
+
+      data.agents.forEach(agent => {
+        const caps = agent.capabilities.map(c => `<span class="cap">${c}</span>`).join('');
+        const role = roleMap[agent.role] || agent.role;
+        list.innerHTML += `
+          <div class="agent-card" data-role="${agent.role}">
+            <div class="name">${agent.name}</div>
+            <div class="role">${agent.role}</div>
+            <div class="caps">${caps}</div>
+            <div class="agent-status">● ${agent.status}</div>
+          </div>
+        `;
+      });
+
+      document.getElementById('stat-agents').textContent = data.agents.length;
+    }
+
+    async function loadHealth() {
+      const res = await fetch('/health');
+      const data = await res.json();
+      const llm = data.llm_available
+        ? `${data.llm_provider}`
+        : `规则模式 (${data.llm_provider})`;
+      document.getElementById('stat-llm').textContent = llm;
+    }
+
+    function watchTask(taskId) {
+      if (taskSource) taskSource.close();
+      if (timelineTimer) clearInterval(timelineTimer);
+      currentTaskId = taskId;
+      document.getElementById('stat-task').textContent = 'queued…';
+      document.getElementById('approval-box').classList.remove('show');
+      loadTimeline(taskId);
+      timelineTimer = setInterval(() => loadTimeline(taskId), 2000);
+
+      taskSource = new EventSource(`/tasks/${taskId}/stream`);
+      taskSource.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.error) return;
+        document.getElementById('stat-task').textContent = data.status;
+        if (data.status === 'waiting_approval') {
+          document.getElementById('approval-box').classList.add('show');
+          document.getElementById('approval-msg').textContent = data.approval_message || '审查未通过，请审批';
+        } else {
+          document.getElementById('approval-box').classList.remove('show');
+        }
+        if (['completed', 'failed', 'cancelled'].includes(data.status)) {
+          taskSource.close();
+          clearInterval(timelineTimer);
+          loadTimeline(taskId);
+        }
+      };
+    }
+
+    async function loadTimeline(taskId) {
+      const el = document.getElementById('timeline');
+      try {
+        const res = await fetch(`/tasks/${taskId}/timeline`);
+        const data = await res.json();
+        if (!data.events || !data.events.length) {
+          el.innerHTML = '<div class="empty">暂无事件</div>';
+          return;
+        }
+        el.innerHTML = data.events.map(ev => {
+          const t = new Date(ev.at).toLocaleTimeString();
+          return `<div class="tl-item">
+            <span class="tl-time">${t}</span>
+            <span class="tl-route">${ev.from_agent} → ${ev.to_agent}</span>
+            <span class="msg-type">${ev.type}</span>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function approveTask(action) {
+      if (!currentTaskId) return;
+      await fetch(`/tasks/${currentTaskId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      document.getElementById('approval-box').classList.remove('show');
+    }
+
+    async function submitTask() {
+      const input = document.getElementById('task-input');
+      const btn = document.getElementById('submit-btn');
+      const task = input.value.trim();
+      if (!task) return;
+
+      btn.disabled = true;
+      btn.textContent = '处理中...';
+
+      try {
+        const res = await fetch('/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task }),
+        });
+        const data = await res.json();
+        if (data.task_id) watchTask(data.task_id);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '提交任务';
+      }
+    }
+
+    function quickTask(task) {
+      document.getElementById('task-input').value = task;
+      submitTask();
+    }
+
+    document.getElementById('task-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitTask();
+    });
+
+    connect();
+    loadAgents();
+    loadHealth();
+    setInterval(loadAgents, 5000);
+  </script>
+</body>
+</html>
