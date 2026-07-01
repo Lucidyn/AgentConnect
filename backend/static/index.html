@@ -139,6 +139,12 @@
     }
     .task-input button:hover { background: var(--accent-hover); }
     .task-input button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .task-input-wrap { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+    .task-input-hint {
+      font-size: 0.65rem;
+      color: var(--muted);
+      padding: 0 2px;
+    }
 
     .topology {
       padding: 1.5rem;
@@ -821,13 +827,17 @@
           </select>
         </div>
         <div class="task-input">
-          <input
-            id="task-input"
-            type="text"
-            placeholder="输入任务，例如：调研 AI 趋势并写中文稿再译成英文"
-            value="写一个 PaddleOCR 服务"
-          />
-          <button id="submit-btn" onclick="submitTask()">提交任务</button>
+          <div class="task-input-wrap">
+            <input
+              id="task-input"
+              type="text"
+              placeholder="输入任务，例如：调研 YOLO26 最新论文并实现检测服务"
+              value="写一个 PaddleOCR 服务"
+              autocomplete="off"
+            />
+            <span class="task-input-hint">中文输入法选字时按回车不会提交；输入完成后按 Enter 或点「提交任务」</span>
+          </div>
+          <button id="submit-btn" type="button" onclick="submitTask()">提交任务</button>
         </div>
 
         <div class="topology" id="topology">
@@ -970,6 +980,7 @@
     let historyTimer = null;
     let taskSubmitting = false;
     let resultExpanded = true;
+    let imeComposing = false;
     let agentNames = [];
     let planTemplates = [];
     const roleMap = {
@@ -1554,8 +1565,16 @@
       });
     });
 
-    document.getElementById('task-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !taskSubmitting) submitTask();
+    const taskInputEl = document.getElementById('task-input');
+    taskInputEl.addEventListener('compositionstart', () => { imeComposing = true; });
+    taskInputEl.addEventListener('compositionend', () => {
+      setTimeout(() => { imeComposing = false; }, 0);
+    });
+    taskInputEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.shiftKey) return;
+      if (imeComposing || e.isComposing) return;
+      e.preventDefault();
+      if (!taskSubmitting) submitTask();
     });
 
     connect();

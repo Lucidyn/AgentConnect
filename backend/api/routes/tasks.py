@@ -31,6 +31,34 @@ async def _task_with_queue(task) -> dict:
     return data
 
 
+def _workspace_display_entries(task) -> list[dict]:
+    """Planner mode stores outputs in context.results; synthesize entries for UI."""
+    ctx = task.context or {}
+    workspace = ctx.get("workspace", {})
+    entries = list(workspace.get("entries") or [])
+    if entries:
+        return entries
+
+    plan = task.plan or {}
+    results = ctx.get("results") or {}
+    synthesized: list[dict] = []
+    for assignment in plan.get("assignments") or []:
+        aid = assignment.get("id", "")
+        content = results.get(aid, "")
+        if not content:
+            continue
+        synthesized.append(
+            {
+                "author": assignment.get("agent", "Agent"),
+                "entry_type": "output",
+                "content": content,
+                "thread_id": aid,
+                "created_at": "",
+            }
+        )
+    return synthesized
+
+
 @router.get("")
 async def list_tasks(limit: int = Depends(clamp_limit)):
     tasks = await platform.task_store.list_tasks(limit=limit)
@@ -122,7 +150,10 @@ async def get_task_workspace(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
     ctx = task.context or {}
-    workspace = ctx.get("workspace", {})
+    workspace = dict(ctx.get("workspace", {}))
+    display_entries = _workspace_display_entries(task)
+    if display_entries and not workspace.get("entries"):
+        workspace = {**workspace, "entries": display_entries}
     return {
         "task_id": task_id,
         "template_id": ctx.get("template_id", ""),

@@ -6,12 +6,14 @@ import re
 
 from backend.constants import PLANNER
 from backend.core.agent import Agent
+from backend.core.query_extract import yolo_model_name
 from backend.models.message import Message, MessageType
 
 SYSTEM_PROMPT = """你是 Coder Agent。只输出：
 1. 核心 Python 代码块（FastAPI 服务必须包含 GET /health 健康检查端点）
 2. 一行运行方式
-不要长篇解释。"""
+不要长篇解释。
+若用户指定 YOLO 版本（如 YOLO26），模型权重须对应该版本（如 yolo26n.pt），不得改用 YOLOv6 或其他版本。"""
 
 _HEALTH_SNIPPET = (
     "\n\n@app.get('/health')\ndef health():\n"
@@ -83,10 +85,11 @@ class CoderAgent(Agent):
         if "ocr" in task_lower or "paddle" in task_lower:
             return self._fixed_code()
         if "yolo" in task_lower:
+            model_file = yolo_model_name(task)
             return (
                 "```python\nfrom fastapi import FastAPI, UploadFile\n"
                 "from ultralytics import YOLO\n\n"
-                'app = FastAPI()\nmodel = YOLO("yolov11n.pt")\n\n'
+                f'app = FastAPI()\nmodel = YOLO("{model_file}")\n\n'
                 "@app.get('/health')\ndef health():\n"
                 "    return {'status': 'ok'}\n\n"
                 "@app.post('/detect')\nasync def detect(file: UploadFile):\n"
