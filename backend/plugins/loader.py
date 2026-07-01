@@ -9,7 +9,16 @@ from typing import Any
 
 import yaml
 
-from backend.agents import CoderAgent, PlannerAgent, ResearchAgent, ReviewerAgent, TestRunnerAgent
+from backend.agents import (
+    AnalystAgent,
+    CoderAgent,
+    PlannerAgent,
+    ResearchAgent,
+    ReviewerAgent,
+    TestRunnerAgent,
+    TranslatorAgent,
+    WriterAgent,
+)
 from backend.config import settings
 from backend.core.agent import Agent
 from backend.tools.arxiv import ArxivTool
@@ -23,6 +32,9 @@ _BUILTIN_AGENTS: dict[str, type[Agent]] = {
     "planner": PlannerAgent,
     "research": ResearchAgent,
     "coder": CoderAgent,
+    "writer": WriterAgent,
+    "analyst": AnalystAgent,
+    "translator": TranslatorAgent,
     "test_runner": TestRunnerAgent,
     "reviewer": ReviewerAgent,
 }

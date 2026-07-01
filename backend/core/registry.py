@@ -24,6 +24,9 @@ class AgentRegistry:
     async def connect(self) -> None:
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(self._db_path)
+        from backend.core.sqlite_utils import configure_sqlite
+
+        await configure_sqlite(self._db)
         await self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS agents (

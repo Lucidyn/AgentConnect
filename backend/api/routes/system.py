@@ -1,8 +1,9 @@
 """Tools, memory, traces, plan, WebSocket."""
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
 from backend.api.schemas import MemoryQueryRequest
+from backend.auth import verify_api_key, verify_ws_api_key
 from backend.core.runtime import list_runtimes
 from backend.platform import platform
 
@@ -19,7 +20,7 @@ async def list_tools():
     return {"tools": platform.tools.list_tools()}
 
 
-@router.post("/memory/query")
+@router.post("/memory/query", dependencies=[Depends(verify_api_key)])
 async def query_memory(req: MemoryQueryRequest):
     if not platform.shared_memory:
         return {"entries": []}
@@ -29,7 +30,7 @@ async def query_memory(req: MemoryQueryRequest):
     return {"entries": [e.model_dump() for e in entries]}
 
 
-@router.get("/traces/{trace_id}")
+@router.get("/traces/{trace_id}", dependencies=[Depends(verify_api_key)])
 async def get_trace(trace_id: str):
     messages = await platform.task_store.find_by_trace(trace_id)
     if not messages:
@@ -37,7 +38,7 @@ async def get_trace(trace_id: str):
     return {"trace_id": trace_id, "messages": [m.model_dump() for m in messages]}
 
 
-@router.get("/plan")
+@router.get("/plan", dependencies=[Depends(verify_api_key)])
 async def get_current_plan(task_id: str = ""):
     if task_id:
         task = await platform.task_store.get(task_id)
@@ -51,6 +52,9 @@ async def get_current_plan(task_id: str = ""):
 
 @router.websocket("/ws/messages")
 async def websocket_messages(websocket: WebSocket):
+    if not await verify_ws_api_key(websocket):
+        await websocket.close(code=4401)
+        return
     await websocket.accept()
 
     async def on_message(message):

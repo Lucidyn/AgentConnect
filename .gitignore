@@ -8,6 +8,8 @@ dist/
 build/
 .pytest_cache/
 .mypy_cache/
+.coverage
+htmlcov/
 data/
 *.db
 .DS_Store

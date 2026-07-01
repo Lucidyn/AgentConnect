@@ -152,6 +152,36 @@ class Agent(ABC):
             },
         )
 
+    async def request_planner_retry(self, message: Message, content: str) -> None:
+        """Ask Planner to re-run upstream work (quality loop)."""
+        await self.send(
+            PLANNER,
+            content,
+            message_type=MessageType.RESPONSE,
+            metadata={
+                "intent": MessageIntent.RETRY_REQUEST.value,
+                "needs_retry": True,
+                "assignment_id": message.metadata.get("assignment_id", ""),
+                "attempt": message.metadata.get("attempt", 0),
+                "reply_to": message.id,
+            },
+        )
+
+    async def request_planner_approval(self, message: Message, content: str) -> None:
+        """Escalate to human approval via Planner."""
+        await self.send(
+            PLANNER,
+            content,
+            message_type=MessageType.RESPONSE,
+            metadata={
+                "intent": MessageIntent.APPROVAL_REQUEST.value,
+                "needs_approval": True,
+                "assignment_id": message.metadata.get("assignment_id", ""),
+                "attempt": message.metadata.get("attempt", 0),
+                "reply_to": message.id,
+            },
+        )
+
     async def ask_agent(self, to_agent: str, question: str, reply_to: str = "") -> Message:
         """Ask another agent a bounded question within the current task thread."""
         return await self.send(

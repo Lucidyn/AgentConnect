@@ -57,3 +57,74 @@ def api_client(isolated_paths, patch_settings):
 
     with TestClient(app) as client:
         yield client
+
+
+@pytest.fixture
+async def planner_stack(isolated_paths, patch_settings):
+    """Started Planner with in-memory bus and isolated stores."""
+    patch_settings(enabled_agents="planner,research,coder,reviewer")
+    stack = await _build_planner_stack(isolated_paths)
+    yield stack
+    await stack.close()
+
+
+@pytest.fixture
+async def planner_stack_factory(isolated_paths, patch_settings):
+    """Factory for planner stacks with custom settings."""
+    stacks = []
+
+    async def _create(**settings_kwargs):
+        enabled = settings_kwargs.pop("enabled_agents", "planner,research,coder,reviewer")
+        patch_settings(enabled_agents=enabled, **settings_kwargs)
+        stack = await _build_planner_stack(isolated_paths)
+        stacks.append(stack)
+        return stack
+
+    yield _create
+    for stack in stacks:
+        await stack.close()
+
+
+async def _build_planner_stack(isolated_paths):
+    from dataclasses import dataclass
+
+    from backend.agents.planner import PlannerAgent
+    from backend.core.llm import LLMClient
+    from backend.core.message_bus import InMemoryMessageBus
+    from backend.core.registry import AgentRegistry
+    from backend.core.services import AgentServices
+    from backend.core.shared_memory import InMemorySharedMemory
+    from backend.core.task_store import TaskStore
+    from backend.tools.registry import ToolRegistry
+
+    @dataclass
+    class PlannerStack:
+        planner: PlannerAgent
+        store: TaskStore
+        bus: InMemoryMessageBus
+        registry: AgentRegistry
+
+        async def close(self) -> None:
+            await self.planner.stop()
+            await self.bus.disconnect()
+            await self.store.disconnect()
+            await self.registry.disconnect()
+
+    registry = AgentRegistry(isolated_paths["registry"])
+    await registry.connect()
+    store = TaskStore(isolated_paths["tasks"])
+    await store.connect()
+    bus = InMemoryMessageBus()
+    await bus.connect()
+    services = AgentServices(
+        bus=bus,
+        registry=registry,
+        llm=LLMClient(),
+        shared_memory=InMemorySharedMemory(),
+        tools=ToolRegistry(),
+        task_store=store,
+    )
+    planner = PlannerAgent(services)
+    await planner.register()
+    await planner.start()
+    return PlannerStack(planner=planner, store=store, bus=bus, registry=registry)

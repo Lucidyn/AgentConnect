@@ -19,14 +19,33 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - USE_REDIS=true
+      - USE_QDRANT=true
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - API_KEY=${API_KEY:-}
+      - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-120}
+      - NEGOTIATION_MAX_ROUNDS=${NEGOTIATION_MAX_ROUNDS:-2}
     depends_on:
       redis:
         condition: service_healthy
     volumes:
       - ./backend:/app/backend
+      - ./plugins:/app/plugins
+      - app_data:/app/data
     command: python -m backend.run
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
 volumes:
   redis_data:
+  app_data:

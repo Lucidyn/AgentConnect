@@ -15,6 +15,18 @@ agents:
     module: backend.agents.coder
     class: CoderAgent
     enabled: true
+  - name: writer
+    module: backend.agents.writer
+    class: WriterAgent
+    enabled: true
+  - name: analyst
+    module: backend.agents.analyst
+    class: AnalystAgent
+    enabled: true
+  - name: translator
+    module: backend.agents.translator
+    class: TranslatorAgent
+    enabled: true
   - name: test_runner
     module: backend.agents.test_runner
     class: TestRunnerAgent

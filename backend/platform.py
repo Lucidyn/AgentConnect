@@ -204,13 +204,49 @@ class Platform:
         return self._message_log
 
     async def submit_task(
-        self, user_input: str, idempotency_key: str = ""
+        self,
+        user_input: str,
+        idempotency_key: str = "",
+        *,
+        template_id: str = "",
+        custom_plan: dict | None = None,
+        collaboration_mode: str = "",
+        negotiation: bool | None = None,
     ) -> tuple[TaskRecord, Message | None]:
         if not self.bus or not self.task_queue:
             raise RuntimeError("Platform not started")
 
         key = idempotency_key.strip() or None
         task, should_start = await self.task_queue.enqueue(user_input, idempotency_key=key)
+
+        ctx_updates: dict = {}
+        if template_id:
+            ctx_updates["template_id"] = template_id
+            from backend.core.plan_templates import get_template
+
+            template = get_template(template_id)
+            if template:
+                ctx_updates.setdefault("collaboration_mode", template.collaboration_mode)
+                ctx_updates.setdefault("negotiation", template.negotiation)
+        if custom_plan:
+            ctx_updates["custom_plan"] = custom_plan
+        if collaboration_mode:
+            ctx_updates["collaboration_mode"] = collaboration_mode
+        if negotiation is not None:
+            ctx_updates["negotiation"] = negotiation
+
+        if ctx_updates:
+            ctx = dict(task.context or {})
+            ctx.update(ctx_updates)
+            if ctx.get("negotiation"):
+                from backend.config import settings
+
+                ns = dict(ctx.get("negotiation_state") or {})
+                ns.setdefault("max_rounds", settings.negotiation_max_rounds)
+                ctx["negotiation_state"] = ns
+            await self.task_store.save_context(task.id, ctx)
+            task = await self.task_store.get(task.id) or task
+
         TASKS_SUBMITTED.inc()
         if not should_start:
             return task, None

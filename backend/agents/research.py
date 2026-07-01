@@ -11,12 +11,11 @@ from backend.models.message import Message, MessageType
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """你是 Research Agent，负责信息调研、文档查找和技术研究。
-根据工具检索结果和共享记忆，输出结构化调研报告：
-1. 关键发现
-2. 参考资料链接
-3. 技术要点
-4. 给 Coder 的建议"""
+SYSTEM_PROMPT = """你是 Research Agent。输出简短调研要点（每条一行）：
+- 关键发现
+- 参考链接（如有）
+- 给 Coder 的 1-3 条建议
+不要长段落。"""
 
 
 class ResearchAgent(Agent):
@@ -48,6 +47,7 @@ class ResearchAgent(Agent):
             SYSTEM_PROMPT,
             "\n\n".join(prompt_parts),
             fallback,
+            role=self.role,
         )
 
         await self.shared_memory.store(

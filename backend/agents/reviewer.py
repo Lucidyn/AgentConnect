@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-from backend.constants import PLANNER, REVIEWER
+from backend.constants import REVIEWER
 from backend.core.agent import Agent
-from backend.models.message import Message, MessageIntent, MessageType
+from backend.models.message import Message
 
-SYSTEM_PROMPT = """你是 Reviewer Agent，负责代码审查和质量把关。
-审查要点：
-1. 代码正确性和完整性
-2. 安全性（输入校验、错误处理）
-3. 可维护性
-4. 部署可行性
-
-输出格式：
-- 总体评价
-- 发现的问题（如有）
-- 改进建议
-- 是否通过审查"""
+SYSTEM_PROMPT = """你是 Reviewer Agent。审查交付物质量（代码、文章、报告等）。
+检查：完整性、逻辑、安全性（如适用）、可读性。
+有基本结构且无明显问题则通过。
+输出：【审查结果】通过/需要修改 + 简短问题列表（如有）。"""
 
 
 class ReviewerAgent(Agent):
@@ -32,49 +24,20 @@ class ReviewerAgent(Agent):
     async def think(self, message: Message) -> str | None:
         content = message.content
         fallback = self._mock_review(content)
-        assignment_id = message.metadata.get("assignment_id", "")
-        attempt = message.metadata.get("attempt", 0)
 
         result = await self.llm.chat(
             SYSTEM_PROMPT,
             f"请审查以下内容：\n{content}",
             fallback,
+            role=self.role,
         )
 
         self.remember("last_review", result)
-        retries = self.recall("retry_count", 0)
         failed = ("Bug" in result or "需要修改" in result) and "通过" not in result
 
-        if failed and retries < 1:
-            self.remember("retry_count", retries + 1)
-            await self.send(
-                PLANNER,
-                f"审查发现问题，请修改：\n{result}",
-                message_type=MessageType.RESPONSE,
-                metadata={
-                    "intent": MessageIntent.RETRY_REQUEST.value,
-                    "needs_retry": True,
-                    "assignment_id": assignment_id,
-                    "attempt": attempt,
-                    "reply_to": message.id,
-                },
-            )
-            return None
-
-        self.remember("retry_count", 0)
-
         if failed:
-            await self.send(
-                PLANNER,
-                result,
-                message_type=MessageType.RESPONSE,
-                metadata={
-                    "intent": MessageIntent.APPROVAL_REQUEST.value,
-                    "needs_approval": True,
-                    "assignment_id": assignment_id,
-                    "attempt": attempt,
-                    "reply_to": message.id,
-                },
+            await self.request_planner_retry(
+                message, f"审查发现问题，请修改：\n{result}"
             )
             return None
 
@@ -83,11 +46,14 @@ class ReviewerAgent(Agent):
 
     def _mock_review(self, content: str) -> str:
         issues = []
-        if "except" not in content.lower() and "try" not in content.lower():
-            issues.append("缺少异常处理")
-        if "UploadFile" in content and "validate" not in content.lower():
+        lower = content.lower()
+        if "try" not in lower and "except" not in lower and ("def " in lower or "class " in lower):
+            issues.append("代码缺少异常处理")
+        if len(content.strip()) < 80:
+            issues.append("内容过短，可能不完整")
+        if "UploadFile" in content and "validate" not in lower:
             if "content_type" not in content and "HTTPException" not in content:
-                issues.append("文件上传缺少校验（文件类型/大小）")
+                issues.append("文件上传缺少校验")
 
         if issues:
             return (

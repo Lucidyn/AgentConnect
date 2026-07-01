@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import time
 
 from backend.config import settings
+from backend.core.llm_params import llm_params_for_role
 from backend.core.llm_providers import create_provider
 from backend.core.metrics import LLM_REQUESTS
 
@@ -36,16 +37,28 @@ class LLMClient:
         system_prompt: str,
         user_prompt: str,
         fallback: str,
+        *,
+        role: str = "default",
     ) -> str:
         if not self._provider:
             logger.debug("LLM unavailable, using fallback response")
             LLM_REQUESTS.labels(provider=self.provider_name, result="fallback").inc()
             return fallback
 
+        params = llm_params_for_role(role)
         try:
-            result = await self._provider.chat(system_prompt, user_prompt)
+            result = await self._provider.chat(
+                system_prompt,
+                user_prompt,
+                max_tokens=int(params["max_tokens"]),
+                temperature=float(params["temperature"]),
+            )
             LLM_REQUESTS.labels(provider=self._provider.name, result="ok").inc()
             return result or fallback
+        except asyncio.TimeoutError:
+            logger.warning("LLM call timed out after %ss", settings.llm_timeout_seconds)
+            LLM_REQUESTS.labels(provider=self._provider.name, result="timeout").inc()
+            return fallback
         except Exception as exc:
             logger.warning("LLM call failed (%s): %s", self._provider.name, exc)
             LLM_REQUESTS.labels(provider=self._provider.name, result="error").inc()

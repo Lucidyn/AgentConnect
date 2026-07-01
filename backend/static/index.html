@@ -291,16 +291,346 @@
       font-size: 0.75rem;
     }
     .approval-btns button:hover { border-color: var(--accent); }
+
+    .mode-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      padding: 0 1rem;
+      background: var(--surface);
+    }
+    .mode-tab {
+      padding: 0.65rem 1rem;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      border-bottom: 2px solid transparent;
+    }
+    .mode-tab.active {
+      color: var(--text);
+      border-bottom-color: var(--accent);
+    }
+
+    .view-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+    .view-panel.active { display: flex; }
+
+    .run-controls {
+      padding: 0.75rem 1rem 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+    .run-controls select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.45rem 0.6rem;
+      color: var(--text);
+      font-size: 0.8rem;
+    }
+
+    .compose-toolbar {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .compose-toolbar button, .compose-toolbar select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.45rem 0.75rem;
+      color: var(--text);
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .compose-toolbar button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .compose-body {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 140px 1fr 300px;
+      overflow: hidden;
+    }
+    .compose-palette {
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 0.5rem;
+    }
+    .compose-palette h3 {
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+    .palette-agent {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      margin-bottom: 4px;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-left-width: 3px;
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 0.72rem;
+      cursor: pointer;
+      text-align: left;
+    }
+    .palette-agent:hover { border-color: var(--accent); }
+    .palette-agent .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    .dag-canvas-wrap {
+      position: relative;
+      overflow: auto;
+      padding: 0;
+      background:
+        linear-gradient(var(--border) 1px, transparent 1px) 0 0 / 24px 24px,
+        linear-gradient(90deg, var(--border) 1px, transparent 1px) 0 0 / 24px 24px,
+        radial-gradient(circle at top, #1e2230 0%, var(--bg) 55%);
+    }
+    #dag-canvas {
+      min-height: 400px;
+      min-width: 100%;
+      position: relative;
+    }
+    .dag-node {
+      position: absolute;
+      width: 132px;
+      height: 56px;
+      border-radius: 10px;
+      border: 2px solid var(--border);
+      background: var(--surface);
+      font-size: 0.72rem;
+      display: flex;
+      align-items: stretch;
+      box-shadow: 0 4px 12px rgba(0,0,0,.25);
+    }
+    .dag-node.selected { box-shadow: 0 0 0 2px var(--accent), 0 4px 16px rgba(99,102,241,.3); }
+    .dag-node.link-source { box-shadow: 0 0 0 2px #22c55e, 0 4px 16px rgba(34,197,94,.25); }
+    .dag-node .node-body {
+      flex: 1;
+      padding: 6px 4px;
+      cursor: grab;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .dag-node .agent-name { font-weight: 700; font-size: 0.75rem; }
+    .dag-node .node-id { color: var(--muted); font-size: 0.62rem; }
+    .dag-node .dep-badge {
+      position: absolute;
+      top: -8px;
+      right: 8px;
+      font-size: 0.6rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0 4px;
+      color: var(--muted);
+    }
+    .port {
+      width: 14px;
+      flex-shrink: 0;
+      cursor: crosshair;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .port::after {
+      content: '';
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+      border: 2px solid var(--surface);
+    }
+    .port-out::after { background: #818cf8; }
+    .port-in::after { background: #22c55e; }
+    .port:hover::after { transform: scale(1.2); }
+    #dag-svg {
+      position: absolute;
+      inset: 0;
+      overflow: visible;
+      pointer-events: none;
+    }
+    #dag-svg path.dag-edge {
+      pointer-events: stroke;
+      fill: none;
+      stroke: #818cf8;
+      stroke-width: 2;
+      cursor: pointer;
+    }
+    #dag-svg path.dag-edge:hover { stroke: #ef4444; stroke-width: 3; }
+
+    .compose-side {
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .compose-side h3 {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+      text-transform: uppercase;
+    }
+    .compose-validation {
+      font-size: 0.72rem;
+      padding: 0.5rem;
+      border-radius: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+    }
+    .compose-validation.ok { border-color: #22c55e; color: #86efac; }
+    .compose-validation.error { border-color: #ef4444; color: #fca5a5; }
+    .compose-validation.info { color: var(--muted); }
+
+    .inspector-section label {
+      display: block;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 0.65rem;
+    }
+    .inspector-section input,
+    .inspector-section select,
+    .inspector-section textarea {
+      width: 100%;
+      margin-top: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 6px 8px;
+      font-size: 0.75rem;
+      font-family: inherit;
+    }
+    .field-hint { font-size: 0.65rem; color: var(--muted); display: block; margin-top: 2px; }
+    .section-label { font-size: 0.72rem; color: var(--muted); margin-bottom: 6px; }
+    .dep-check {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.72rem;
+      padding: 4px 0;
+      cursor: pointer;
+    }
+    .inspector-actions { display: flex; gap: 6px; }
+    .inspector-actions button {
+      flex: 1;
+      padding: 6px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.72rem;
+    }
+    .inspector-actions button.danger { border-color: #ef4444; color: #fca5a5; }
+    .hint-list { font-size: 0.72rem; color: var(--muted); padding-left: 1rem; line-height: 1.6; }
+
+    .compose-plan-meta label {
+      display: block;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+    .compose-plan-meta input, .compose-plan-meta select {
+      width: 100%;
+      margin-top: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 6px 8px;
+      font-size: 0.75rem;
+    }
+    .compose-toolbar .sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+    .json-preview {
+      font-family: ui-monospace, monospace;
+      font-size: 0.65rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem;
+      max-height: 120px;
+      overflow-y: auto;
+      color: var(--muted);
+    }
+
+    .topo-layer {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin: 0.25rem 0;
+    }
+    .topo-layer-label {
+      font-size: 0.6rem;
+      color: var(--muted);
+      text-align: center;
+      width: 100%;
+    }
+    .topo-merge-arrow {
+      color: var(--muted);
+      font-size: 1rem;
+      text-align: center;
+      padding: 0.2rem 0;
+    }
+
+    .blackboard-panel {
+      margin-top: 1rem;
+      max-height: 220px;
+      overflow-y: auto;
+      font-size: 0.75rem;
+    }
+    .bb-entry {
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .bb-entry .meta { color: var(--muted); font-size: 0.65rem; }
+
+    .toast {
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      max-width: 90vw;
+      box-shadow: 0 8px 24px rgba(0,0,0,.4);
+    }
+    .toast.error { background: #7f1d1d; border: 1px solid #ef4444; color: #fecaca; }
+    .toast.ok { background: #14532d; border: 1px solid #22c55e; color: #bbf7d0; }
+    .toast.info { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
   </style>
 </head>
 <body>
   <header>
     <h1><span>Agent</span> Connect</h1>
-    <div id="connection-status">
-      <span class="status-dot offline" id="status-dot"></span>
-      <span id="status-text">连接中...</span>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <input id="api-key-input" type="password" placeholder="API Key (可选)"
+        style="width:140px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:0.75rem;" />
+      <div id="connection-status">
+        <span class="status-dot offline" id="status-dot"></span>
+        <span id="status-text">连接中...</span>
+      </div>
     </div>
   </header>
+  <div id="toast" class="toast" style="display:none"></div>
 
   <main>
     <div class="panel" id="agents-panel">
@@ -309,30 +639,97 @@
     </div>
 
     <div class="center-panel">
-      <div class="task-input">
-        <input
-          id="task-input"
-          type="text"
-          placeholder="输入任务，例如：写一个 PaddleOCR 服务"
-          value="写一个 PaddleOCR 服务"
-        />
-        <button id="submit-btn" onclick="submitTask()">提交任务</button>
+      <div class="mode-tabs">
+        <button class="mode-tab active" id="tab-run" onclick="switchView('run')">运行</button>
+        <button class="mode-tab" id="tab-compose" onclick="switchView('compose')">编排 (DAG)</button>
       </div>
 
-      <div class="topology">
-        <div class="topo-node planner" id="node-User">User</div>
-        <div class="topo-arrow">↓</div>
-        <div class="topo-node planner" id="node-Planner">Planner</div>
-        <div class="topo-arrow">↓</div>
-        <div class="topo-row">
-          <div class="topo-node research" id="node-Research">Research</div>
-          <div class="topo-node coder" id="node-Coder">Coder</div>
-          <div class="topo-node reviewer" id="node-Reviewer">Reviewer</div>
+      <div class="view-panel active" id="view-run">
+        <div class="run-controls">
+          <select id="template-select">
+            <option value="">自动计划 (Planner LLM)</option>
+          </select>
+          <select id="collab-mode">
+            <option value="">协作模式 (默认)</option>
+            <option value="planner">Planner 中心</option>
+            <option value="blackboard">黑板协作</option>
+          </select>
+        </div>
+        <div class="task-input">
+          <input
+            id="task-input"
+            type="text"
+            placeholder="输入任务，例如：调研 AI 趋势并写中文稿再译成英文"
+            value="写一个 PaddleOCR 服务"
+          />
+          <button id="submit-btn" onclick="submitTask()">提交任务</button>
+        </div>
+
+        <div class="topology" id="topology">
+          <div class="topo-node planner" id="node-User">User</div>
+          <div class="topo-arrow">↓</div>
+          <div class="topo-node planner" id="node-Planner">Planner</div>
+          <div class="topo-arrow">↓</div>
+          <div class="topo-row" id="topo-agents">
+            <div class="topo-node research" id="node-Research">Research</div>
+            <div class="topo-node coder" id="node-Coder">Coder</div>
+            <div class="topo-node reviewer" id="node-Reviewer">Reviewer</div>
+          </div>
+        </div>
+
+        <div class="messages" id="messages">
+          <div class="empty">等待消息...</div>
         </div>
       </div>
 
-      <div class="messages" id="messages">
-        <div class="empty">等待消息...</div>
+      <div class="view-panel" id="view-compose">
+        <div class="compose-toolbar">
+          <select id="compose-template-select"><option value="">模板...</option></select>
+          <button type="button" id="btn-load-template">载入</button>
+          <span class="sep"></span>
+          <button type="button" id="btn-parallel-fork" title="Research + Analyst 并行 → Writer">并行分叉</button>
+          <button type="button" id="btn-merge-join" title="多路上游汇聚到一个节点">汇聚</button>
+          <button type="button" id="btn-auto-layout">自动布局</button>
+          <button type="button" id="btn-add-node">+ 空节点</button>
+          <span class="sep"></span>
+          <button type="button" id="btn-import-json">导入 JSON</button>
+          <button type="button" id="btn-export-json">导出 JSON</button>
+          <button type="button" id="btn-clear-canvas">清空</button>
+          <span class="sep"></span>
+          <button type="button" id="btn-validate-plan">校验</button>
+          <button type="button" class="primary" id="btn-submit-plan">提交计划</button>
+        </div>
+        <div class="compose-body">
+          <div class="compose-palette">
+            <h3>Agent 面板</h3>
+            <div id="agent-palette"></div>
+          </div>
+          <div class="dag-canvas-wrap" id="dag-canvas-wrap">
+            <div id="dag-canvas">
+              <svg id="dag-svg"></svg>
+            </div>
+          </div>
+          <div class="compose-side">
+            <div id="compose-validation" class="compose-validation info">从左侧添加 Agent 开始编排</div>
+            <div class="compose-plan-meta">
+              <h3>计划设置</h3>
+              <label>计划摘要<input id="compose-plan-summary" value="可视化编排：{task}"></label>
+              <label>协作模式
+                <select id="compose-collab-mode">
+                  <option value="blackboard">黑板协作</option>
+                  <option value="planner">Planner 中心</option>
+                </select>
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;margin-top:8px">
+                <input type="checkbox" id="compose-negotiation" checked> 启用协商
+              </label>
+            </div>
+            <h3>节点属性</h3>
+            <div id="compose-inspector"><div class="empty">选择节点编辑</div></div>
+            <h3>JSON</h3>
+            <div class="json-preview" id="compose-json">{}</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -358,13 +755,22 @@
         </div>
       </div>
 
+      <h2 style="margin-top:1.5rem">协作黑板</h2>
+      <div id="blackboard" class="blackboard-panel"><div class="empty">提交任务后显示</div></div>
+
       <h2 style="margin-top:1.5rem">快速任务</h2>
       <div id="quick-tasks">
         <button onclick="quickTask('查一下 YOLO 最新论文并实现检测服务')" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
           YOLO 检测服务
         </button>
-        <button onclick="quickTask('调研 Qwen-VL 多模态能力并写 Demo')" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
+        <button onclick="quickTask('调研 Qwen-VL 多模态能力，分析竞品并写 Demo')" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
           Qwen-VL Demo
+        </button>
+        <button onclick="quickTemplate('research_write_translate','调研 AI Agent 趋势并写中文稿再译成英文')" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
+          调研+写作+翻译
+        </button>
+        <button onclick="quickTemplate('hybrid_report','做一份大模型行业分析报告')" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
+          跨领域混合报告
         </button>
         <button onclick="quickTask('实现船舶图像识别 API')" style="width:100%;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
           船舶识别 API
@@ -373,20 +779,86 @@
     </div>
   </main>
 
+  <script src="/static/compose.js"></script>
   <script>
     let ws = null;
     let messageCount = 0;
     let taskSource = null;
     let currentTaskId = null;
     let timelineTimer = null;
+    let workspaceTimer = null;
+    let agentNames = [];
+    let planTemplates = [];
     const roleMap = {
       planner: 'planner', researcher: 'research', developer: 'coder',
-      reviewer: 'reviewer', vision: 'vision',
+      reviewer: 'reviewer', vision: 'vision', writer: 'research',
+      analyst: 'coder', translator: 'vision',
     };
+    const topoClass = {
+      Research: 'research', Coder: 'coder', Reviewer: 'reviewer',
+      Writer: 'research', Analyst: 'coder', Translator: 'vision',
+      TestRunner: 'coder', Vision: 'vision', Planner: 'planner',
+    };
+
+    const API_KEY_STORAGE = 'agent_connect_api_key';
+
+    function getApiKey() {
+      const el = document.getElementById('api-key-input');
+      return (el && el.value.trim()) || localStorage.getItem(API_KEY_STORAGE) || '';
+    }
+
+    function saveApiKey() {
+      const el = document.getElementById('api-key-input');
+      if (el) localStorage.setItem(API_KEY_STORAGE, el.value.trim());
+    }
+
+    function showToast(message, type = 'info') {
+      const el = document.getElementById('toast');
+      if (!el) return;
+      el.className = `toast ${type}`;
+      el.textContent = message;
+      el.style.display = 'block';
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => { el.style.display = 'none'; }, 5000);
+    }
+
+    async function apiFetch(url, options = {}) {
+      const headers = { ...(options.headers || {}) };
+      const key = getApiKey();
+      if (key) headers['X-API-Key'] = key;
+      if (options.body && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+      }
+      const res = await fetch(url, { ...options, headers });
+      if (res.status === 401) {
+        showToast('API Key 无效或未填写 — 请在右上角配置', 'error');
+      } else if (!res.ok) {
+        let detail = res.statusText;
+        try {
+          const err = await res.json();
+          detail = err.detail || err.error || JSON.stringify(err);
+        } catch (e) { /* ignore */ }
+        showToast(`请求失败 (${res.status}): ${detail}`, 'error');
+      }
+      return res;
+    }
+
+    function switchView(name) {
+      document.getElementById('view-run').classList.toggle('active', name === 'run');
+      document.getElementById('view-compose').classList.toggle('active', name === 'compose');
+      document.getElementById('tab-run').classList.toggle('active', name === 'run');
+      document.getElementById('tab-compose').classList.toggle('active', name === 'compose');
+      if (name === 'compose' && window.ComposeEditor) {
+        window.ComposeEditor.renderAll();
+      }
+    }
+    window.switchView = switchView;
 
     function connect() {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${proto}//${location.host}/ws/messages`);
+      const key = getApiKey();
+      const qs = key ? `?api_key=${encodeURIComponent(key)}` : '';
+      ws = new WebSocket(`${proto}//${location.host}/ws/messages${qs}`);
 
       ws.onopen = () => {
         document.getElementById('status-dot').className = 'status-dot online';
@@ -446,9 +918,28 @@
       return d.innerHTML;
     }
 
+    async function loadTemplates() {
+      try {
+        const res = await apiFetch('/templates');
+        const data = await res.json();
+        planTemplates = data.templates || [];
+        const runSel = document.getElementById('template-select');
+        const composeSel = document.getElementById('compose-template-select');
+        runSel.innerHTML = '<option value="">自动计划 (Planner LLM)</option>';
+        composeSel.innerHTML = '<option value="">加载模板...</option>';
+        planTemplates.forEach(t => {
+          runSel.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+          composeSel.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
     async function loadAgents() {
-      const res = await fetch('/agents');
+      const res = await apiFetch('/agents');
       const data = await res.json();
+      agentNames = data.agents.map(a => a.name);
       const list = document.getElementById('agents-list');
       list.innerHTML = '';
 
@@ -466,6 +957,7 @@
       });
 
       document.getElementById('stat-agents').textContent = data.agents.length;
+      if (window.ComposeEditor) window.ComposeEditor.setAgentNames(agentNames);
     }
 
     async function loadHealth() {
@@ -480,11 +972,14 @@
     function watchTask(taskId) {
       if (taskSource) taskSource.close();
       if (timelineTimer) clearInterval(timelineTimer);
+      if (workspaceTimer) clearInterval(workspaceTimer);
       currentTaskId = taskId;
       document.getElementById('stat-task').textContent = 'queued…';
       document.getElementById('approval-box').classList.remove('show');
       loadTimeline(taskId);
+      loadWorkspace(taskId);
       timelineTimer = setInterval(() => loadTimeline(taskId), 2000);
+      workspaceTimer = setInterval(() => loadWorkspace(taskId), 3000);
 
       taskSource = new EventSource(`/tasks/${taskId}/stream`);
       taskSource.onmessage = (e) => {
@@ -500,15 +995,81 @@
         if (['completed', 'failed', 'cancelled'].includes(data.status)) {
           taskSource.close();
           clearInterval(timelineTimer);
+          clearInterval(workspaceTimer);
           loadTimeline(taskId);
+          loadWorkspace(taskId);
         }
       };
+    }
+
+    async function loadWorkspace(taskId) {
+      const el = document.getElementById('blackboard');
+      try {
+        const res = await apiFetch(`/tasks/${taskId}/workspace`);
+        const data = await res.json();
+        if (data.error) return;
+        if (data.plan && data.plan.assignments) {
+          renderTopology(data.plan.assignments);
+        }
+        const ws = data.workspace || {};
+        const entries = ws.entries || [];
+        const parts = [];
+        if (data.template_id) parts.push(`模板: ${data.template_id}`);
+        if (data.collaboration_mode) parts.push(`模式: ${data.collaboration_mode}`);
+        entries.forEach(entry => {
+          parts.push(`<div class="bb-entry"><div class="meta">${entry.author} · ${entry.entry_type}</div>${escapeHtml(entry.content || '')}</div>`);
+        });
+        (ws.negotiation_log || []).slice(-3).forEach(line => {
+          parts.push(`<div class="bb-entry"><div class="meta">协商</div>${escapeHtml(line)}</div>`);
+        });
+        el.innerHTML = parts.length ? parts.join('') : '<div class="empty">黑板暂无内容</div>';
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function renderTopology(assignments) {
+      const container = document.getElementById('topology');
+      if (!container || !assignments.length) return;
+
+      const byId = Object.fromEntries(assignments.map(a => [a.id, a]));
+      const depth = {};
+      function calc(id, seen = new Set()) {
+        if (depth[id] !== undefined) return depth[id];
+        if (seen.has(id)) return 0;
+        seen.add(id);
+        const deps = byId[id]?.depends_on || [];
+        depth[id] = deps.length ? Math.max(...deps.map(d => calc(d, seen)) + 1) : 0;
+        return depth[id];
+      }
+      assignments.forEach(a => calc(a.id));
+      const max = Math.max(...Object.values(depth), 0);
+      const layers = Array.from({ length: max + 1 }, () => []);
+      assignments.forEach(a => layers[depth[a.id]].push(a));
+
+      let html = `
+        <div class="topo-node planner" id="node-User">User</div>
+        <div class="topo-arrow">↓</div>
+        <div class="topo-node planner" id="node-Planner">Planner</div>
+        <div class="topo-arrow">↓</div>
+      `;
+      layers.forEach((layer, i) => {
+        if (i > 0) html += '<div class="topo-merge-arrow">↓</div>';
+        const label = layer.length > 1 ? `第 ${i + 1} 层 · ${layer.length} 路并行` : (i === 0 ? '起始' : `第 ${i + 1} 层`);
+        html += `<div class="topo-layer"><div class="topo-layer-label">${label}</div>`;
+        html += layer.map(a => {
+          const cls = topoClass[a.agent] || 'coder';
+          return `<div class="topo-node ${cls}" id="node-${a.agent}-${a.id}" title="${a.id}">${a.agent}</div>`;
+        }).join('');
+        html += '</div>';
+      });
+      container.innerHTML = html;
     }
 
     async function loadTimeline(taskId) {
       const el = document.getElementById('timeline');
       try {
-        const res = await fetch(`/tasks/${taskId}/timeline`);
+        const res = await apiFetch(`/tasks/${taskId}/timeline`);
         const data = await res.json();
         if (!data.events || !data.events.length) {
           el.innerHTML = '<div class="empty">暂无事件</div>';
@@ -529,15 +1090,15 @@
 
     async function approveTask(action) {
       if (!currentTaskId) return;
-      await fetch(`/tasks/${currentTaskId}/approve`, {
+      const res = await apiFetch(`/tasks/${currentTaskId}/approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       });
+      if (res.ok) showToast('审批已提交', 'ok');
       document.getElementById('approval-box').classList.remove('show');
     }
 
-    async function submitTask() {
+    async function submitTask(extraBody = {}) {
       const input = document.getElementById('task-input');
       const btn = document.getElementById('submit-btn');
       const task = input.value.trim();
@@ -546,14 +1107,24 @@
       btn.disabled = true;
       btn.textContent = '处理中...';
 
+      const body = { task, ...extraBody };
+      const templateId = document.getElementById('template-select').value;
+      const collab = document.getElementById('collab-mode').value;
+      if (templateId) body.template_id = templateId;
+      if (collab) body.collaboration_mode = collab;
+
       try {
-        const res = await fetch('/tasks', {
+        switchView('run');
+        const res = await apiFetch('/tasks', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ task }),
+          body: JSON.stringify(body),
         });
+        if (!res.ok) return;
         const data = await res.json();
-        if (data.task_id) watchTask(data.task_id);
+        if (data.task_id) {
+          showToast(`任务已提交 · ${data.task_id.slice(0, 8)}…`, 'ok');
+          watchTask(data.task_id);
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -561,8 +1132,17 @@
         btn.textContent = '提交任务';
       }
     }
+    window.submitTask = submitTask;
+    window.apiFetch = apiFetch;
 
     function quickTask(task) {
+      document.getElementById('template-select').value = '';
+      document.getElementById('task-input').value = task;
+      submitTask();
+    }
+
+    function quickTemplate(templateId, task) {
+      document.getElementById('template-select').value = templateId;
       document.getElementById('task-input').value = task;
       submitTask();
     }
@@ -572,8 +1152,15 @@
     });
 
     connect();
+    const apiKeyEl = document.getElementById('api-key-input');
+    if (apiKeyEl) {
+      apiKeyEl.value = localStorage.getItem(API_KEY_STORAGE) || '';
+      apiKeyEl.addEventListener('change', () => { saveApiKey(); connect(); });
+    }
     loadAgents();
     loadHealth();
+    loadTemplates();
+    if (window.ComposeEditor) window.ComposeEditor.init();
     setInterval(loadAgents, 5000);
   </script>
 </body>

@@ -6,8 +6,10 @@ from backend.constants import PLANNER
 from backend.core.agent import Agent
 from backend.models.message import Message, MessageType
 
-SYSTEM_PROMPT = """你是 Coder Agent，负责根据需求和调研结果编写代码。
-输出应包含：实现思路、核心代码（Python）、依赖说明、运行方式。"""
+SYSTEM_PROMPT = """你是 Coder Agent。只输出：
+1. 核心 Python 代码块
+2. 一行运行方式
+不要长篇解释。"""
 
 
 class CoderAgent(Agent):
@@ -35,6 +37,7 @@ class CoderAgent(Agent):
             SYSTEM_PROMPT,
             f"背景：\n{context}\n\n编码任务：{task}" if context else f"编码任务：{task}",
             fallback,
+            role=self.role,
         )
 
         await self.shared_memory.store(

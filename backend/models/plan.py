@@ -132,10 +132,18 @@ class TaskPlan(BaseModel):
                 reset_ids.append(assignment.id)
         return reset_ids
 
-    def validate(self) -> list[str]:
-        from backend.core.plan_validate import validate_assignments
-
-        return validate_assignments(self.assignments)
+    @classmethod
+    def from_record(cls, plan_data: dict | None) -> TaskPlan | None:
+        if not plan_data:
+            return None
+        return cls(
+            summary=plan_data.get("summary", ""),
+            steps=plan_data.get("steps", []),
+            assignments=[
+                TaskAssignment.model_validate(item)
+                for item in plan_data.get("assignments", [])
+            ],
+        )
 
     def to_context(self) -> dict[str, Any]:
         return {

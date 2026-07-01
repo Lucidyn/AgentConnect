@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from backend.constants import PLANNER
+from backend.constants import TEST_RUNNER
 from backend.core.agent import Agent
-from backend.models.message import Message, MessageIntent, MessageType
+from backend.models.message import Message
 
 
 class TestRunnerAgent(Agent):
     __test__ = False
 
-    name = "TestRunner"
+    name = TEST_RUNNER
     role = "tester"
     capabilities = ["testing", "validation", "quality_gate"]
     description = "运行轻量验证，输出测试结果与失败原因"
@@ -19,24 +19,10 @@ class TestRunnerAgent(Agent):
     accepts = ["assignment_start"]
 
     async def think(self, message: Message) -> str | None:
-        content = message.content
-        assignment_id = message.metadata.get("assignment_id", "")
-        attempt = message.metadata.get("attempt", 0)
-        result = self._mock_test(content)
+        result = self._mock_test(message.content)
 
         if result.startswith("FAILED"):
-            await self.send(
-                PLANNER,
-                result,
-                message_type=MessageType.RESPONSE,
-                metadata={
-                    "intent": MessageIntent.RETRY_REQUEST.value,
-                    "needs_retry": True,
-                    "assignment_id": assignment_id,
-                    "attempt": attempt,
-                    "reply_to": message.id,
-                },
-            )
+            await self.request_planner_retry(message, result)
             return None
 
         await self.reply_to_planner(message, result)

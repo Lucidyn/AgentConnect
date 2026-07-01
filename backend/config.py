@@ -41,5 +41,34 @@ class Settings(BaseSettings):
     assignment_max_retries: int = 1
     loop_max_iterations: int = 3
 
+    # Performance / fast pipeline
+    fast_mode: bool = False
+    fast_skip_planner_llm: bool = False
+    fast_skip_research: bool = True
+    fast_skip_test_runner: bool = True
+    assignment_context_max_chars: int = 2000
+
+    llm_max_tokens_default: int = 1024
+    llm_max_tokens_planner: int = 512
+    llm_max_tokens_research: int = 400
+    llm_max_tokens_coder: int = 800
+    llm_max_tokens_reviewer: int = 300
+    llm_temperature_default: float = 0.7
+    llm_temperature_planner: float = 0.0
+    llm_timeout_seconds: float = 120.0
+
+    # API limits
+    task_input_max_length: int = 8000
+    api_max_list_limit: int = 100
+
+    # Negotiation
+    negotiation_max_rounds: int = 2
+
+    # Phase 3 worker scaffold
+    worker_mode: bool = False
+    worker_stream_key: str = "ac:assignments"
+    worker_result_stream_key: str = "ac:results"
+    worker_poll_interval: float = 2.0
+
 
 settings = Settings()

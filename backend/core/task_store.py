@@ -41,6 +41,9 @@ class TaskStore:
     async def connect(self) -> None:
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(self._db_path)
+        from backend.core.sqlite_utils import configure_sqlite
+
+        await configure_sqlite(self._db)
         await self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS tasks (
@@ -167,6 +170,8 @@ class TaskStore:
 
     async def recover_stale_tasks(self) -> None:
         """Re-queue tasks that were active when the server last stopped."""
+        from backend.core.plan_recovery import recover_plan_assignments
+
         assert self._db is not None
         for status in _RECOVER_STATUSES:
             async with self._db.execute(
@@ -174,24 +179,9 @@ class TaskStore:
             ) as cursor:
                 rows = await cursor.fetchall()
             for (task_id,) in rows:
-                await self._recover_plan_assignments(task_id)
+                await recover_plan_assignments(self, task_id)
                 await self.update_status(task_id, TaskStatus.QUEUED)
                 logger.info("Recovered stale task %s → queued", task_id)
-
-    async def _recover_plan_assignments(self, task_id: str) -> None:
-        """Reset RUNNING sub-assignments so dispatch can resume after restart."""
-        from backend.models.task_context import TaskContext
-
-        task = await self.get(task_id)
-        if not task or not task.plan:
-            return
-        plan = TaskContext.plan_from_record(task.plan)
-        if not plan:
-            return
-        reset = plan.reset_running_to_pending()
-        if reset:
-            await self.save_plan(task_id, plan.to_context())
-            logger.info("Reset %d RUNNING assignment(s) for task %s", reset, task_id)
 
     async def count_active(self) -> int:
         assert self._db is not None
@@ -242,21 +232,14 @@ class TaskStore:
         await self._db.commit()
 
     async def save_plan(self, task_id: str, plan: dict) -> None:
-        task = await self.get(task_id)
-        if not task:
-            return
-        status = task.status
-        if status not in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.QUEUED):
-            status = TaskStatus.RUNNING
         assert self._db is not None
         await self._db.execute(
             """
-            UPDATE tasks SET plan_json = ?, status = ?, updated_at = ?
+            UPDATE tasks SET plan_json = ?, updated_at = ?
             WHERE id = ?
             """,
             (
                 json.dumps(plan, ensure_ascii=False) if plan else None,
-                status.value,
                 datetime.now(timezone.utc).isoformat(),
                 task_id,
             ),

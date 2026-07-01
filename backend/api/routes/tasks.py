@@ -5,18 +5,19 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException
 
+from backend.api.deps import clamp_limit
 from backend.api.schemas import ApprovalRequest, TaskRequest, TaskResponse
 from backend.auth import verify_api_key
 from backend.models.task import TaskStatus
 from backend.platform import platform
 
-router = APIRouter(prefix="/tasks", tags=["tasks"])
+router = APIRouter(prefix="/tasks", tags=["tasks"], dependencies=[Depends(verify_api_key)])
 
 
 @router.get("")
-async def list_tasks(limit: int = 20):
+async def list_tasks(limit: int = Depends(clamp_limit)):
     tasks = await platform.task_store.list_tasks(limit=limit)
     return {"tasks": [t.model_dump() for t in tasks]}
 
@@ -26,7 +27,7 @@ async def get_task_result(task_id: str = ""):
     if task_id:
         task = await platform.task_store.get(task_id)
         if not task:
-            return {"error": f"Task '{task_id}' not found"}
+            raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
         return {
             "task_id": task.id,
             "status": task.status.value,
@@ -49,18 +50,24 @@ async def get_task_result(task_id: str = ""):
 async def get_task(task_id: str):
     task = await platform.task_store.get(task_id)
     if not task:
-        return {"error": f"Task '{task_id}' not found"}
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
     return {"task": task.model_dump()}
 
 
 @router.get("/{task_id}/messages")
 async def get_task_messages(task_id: str):
+    task = await platform.task_store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
     messages = await platform.task_store.get_messages(task_id)
     return {"task_id": task_id, "messages": [m.model_dump() for m in messages]}
 
 
 @router.get("/{task_id}/artifacts")
 async def get_task_artifacts(task_id: str):
+    task = await platform.task_store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
     artifacts = await platform.task_store.list_artifacts(task_id)
     return {"task_id": task_id, "artifacts": [a.model_dump(mode="json") for a in artifacts]}
 
@@ -69,7 +76,7 @@ async def get_task_artifacts(task_id: str):
 async def get_task_timeline(task_id: str):
     task = await platform.task_store.get(task_id)
     if not task:
-        return {"error": f"Task '{task_id}' not found"}
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
     messages = await platform.task_store.get_messages(task_id)
     events = [
         {
@@ -91,29 +98,51 @@ async def get_task_timeline(task_id: str):
     }
 
 
+@router.get("/{task_id}/workspace")
+async def get_task_workspace(task_id: str):
+    task = await platform.task_store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+    ctx = task.context or {}
+    workspace = ctx.get("workspace", {})
+    return {
+        "task_id": task_id,
+        "template_id": ctx.get("template_id", ""),
+        "collaboration_mode": ctx.get("collaboration_mode", "planner"),
+        "negotiation": ctx.get("negotiation", False),
+        "negotiation_state": ctx.get("negotiation_state", {}),
+        "workspace": workspace,
+        "plan": task.plan,
+    }
+
+
 @router.get("/{task_id}/stream")
 async def stream_task(task_id: str):
     from fastapi.responses import StreamingResponse
 
+    task = await platform.task_store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+
     async def events():
         last: str | None = None
         while True:
-            task = await platform.task_store.get(task_id)
-            if not task:
+            current = await platform.task_store.get(task_id)
+            if not current:
                 yield f"data: {json.dumps({'error': 'not found'})}\n\n"
                 break
             payload = {
                 "task_id": task_id,
-                "status": task.status.value,
-                "result": task.result,
+                "status": current.status.value,
+                "result": current.result,
             }
-            if task.status == TaskStatus.WAITING_APPROVAL:
-                payload["approval_message"] = (task.context or {}).get("approval_message", "")
+            if current.status == TaskStatus.WAITING_APPROVAL:
+                payload["approval_message"] = (current.context or {}).get("approval_message", "")
             line = json.dumps(payload, ensure_ascii=False)
             if line != last:
                 yield f"data: {line}\n\n"
                 last = line
-            if task.status in (
+            if current.status in (
                 TaskStatus.COMPLETED,
                 TaskStatus.FAILED,
                 TaskStatus.CANCELLED,
@@ -124,28 +153,38 @@ async def stream_task(task_id: str):
     return StreamingResponse(events(), media_type="text/event-stream")
 
 
-@router.post("/{task_id}/cancel", dependencies=[Depends(verify_api_key)])
+@router.post("/{task_id}/cancel")
 async def cancel_task(task_id: str):
     task = await platform.cancel_task(task_id)
     if not task:
-        return {"error": f"Task '{task_id}' not found"}
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
     return {"task": task.model_dump()}
 
 
-@router.post("/{task_id}/approve", dependencies=[Depends(verify_api_key)])
+@router.post("/{task_id}/approve")
 async def approve_task(task_id: str, req: ApprovalRequest):
     task = await platform.approve_task(task_id, req.action)
     if not task:
-        return {"error": f"Task '{task_id}' not awaiting approval"}
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task '{task_id}' not found or not awaiting approval",
+        )
     return {"task": task.model_dump()}
 
 
-@router.post("", response_model=TaskResponse, dependencies=[Depends(verify_api_key)])
+@router.post("", response_model=TaskResponse)
 async def submit_task(
     req: TaskRequest,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    task, message = await platform.submit_task(req.task, idempotency_key or "")
+    task, message = await platform.submit_task(
+        req.task,
+        idempotency_key or "",
+        template_id=req.template_id,
+        custom_plan=req.custom_plan,
+        collaboration_mode=req.collaboration_mode,
+        negotiation=req.negotiation,
+    )
     return TaskResponse(
         task_id=task.id,
         message_id=message.id if message else "",

@@ -1,0 +1,118 @@
+# User-selectable plan templates — {task} is replaced with user input.
+
+templates:
+  - id: research_write_translate
+    name: 调研 + 写作 + 翻译
+    description: 先调研，再写作，再翻译，最后审查
+    collaboration_mode: blackboard
+    negotiation: true
+    summary: "将「{task}」拆解为调研→写作→翻译→审查"
+    steps: [调研, 写作, 翻译, 审查]
+    assignments:
+      - id: t1
+        agent: Research
+        task: "调研：{task}"
+        depends_on: []
+        reason: 收集写作与翻译所需的背景资料
+      - id: t2
+        agent: Writer
+        task: "写作：{task}"
+        depends_on: [t1]
+        reason: 基于调研产出正文
+      - id: t3
+        agent: Translator
+        task: "翻译：{task}"
+        depends_on: [t2]
+        reason: 将正文翻译为目标语言
+      - id: t4
+        agent: Reviewer
+        task: "审查：{task}"
+        depends_on: [t3]
+        reason: 检查内容与翻译质量
+
+  - id: hybrid_report
+    name: 跨领域混合（调研→分析→写作→审查）
+    description: Research → Analyst → Writer → Reviewer
+    collaboration_mode: blackboard
+    negotiation: true
+    summary: "将「{task}」拆解为调研→分析→写作→审查"
+    steps: [调研, 分析, 写作, 审查]
+    assignments:
+      - id: t1
+        agent: Research
+        task: "调研：{task}"
+        depends_on: []
+        reason: 收集原始资料
+      - id: t2
+        agent: Analyst
+        task: "分析：{task}"
+        depends_on: [t1]
+        reason: 结构化分析与洞察
+      - id: t3
+        agent: Writer
+        task: "写作：{task}"
+        depends_on: [t2]
+        reason: 基于分析撰写成稿
+      - id: t4
+        agent: Reviewer
+        task: "审查：{task}"
+        depends_on: [t3]
+        reason: 最终质量把关
+
+  - id: parallel_research
+    name: 并行调研 + 汇聚写作
+    description: Research 与 Analyst 并行，Writer 汇聚，Reviewer 审查
+    collaboration_mode: blackboard
+    negotiation: true
+    summary: "将「{task}」拆解为并行调研/分析→写作→审查"
+    steps: [并行调研, 并行分析, 写作, 审查]
+    assignments:
+      - id: t1
+        agent: Research
+        task: "调研：{task}"
+        depends_on: []
+        reason: 资料收集
+      - id: t2
+        agent: Analyst
+        task: "分析：{task}"
+        depends_on: []
+        reason: 结构化分析（与调研并行）
+      - id: t3
+        agent: Writer
+        task: "写作：{task}"
+        depends_on: [t1, t2]
+        reason: 汇聚上游结果成稿
+      - id: t4
+        agent: Reviewer
+        task: "审查：{task}"
+        depends_on: [t3]
+        reason: 质量把关
+
+  - id: coding_standard
+    name: 标准编码流水线
+    description: Research → Coder → TestRunner → Reviewer
+    collaboration_mode: planner
+    negotiation: false
+    summary: "将「{task}」拆解为调研→编码→测试→审查"
+    steps: [调研, 编码, 测试, 审查]
+    assignments:
+      - id: t1
+        agent: Research
+        task: "调研：{task}"
+        depends_on: []
+        reason: 技术调研
+      - id: t2
+        agent: Coder
+        task: "实现：{task}"
+        depends_on: [t1]
+        reason: 产出实现
+      - id: t3
+        agent: TestRunner
+        task: "测试：{task}"
+        depends_on: [t2]
+        reason: 轻量验证
+      - id: t4
+        agent: Reviewer
+        task: "审查：{task}"
+        depends_on: [t3]
+        reason: 代码审查

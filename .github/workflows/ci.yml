@@ -28,13 +28,15 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
-      - name: Run tests
+      - name: Run tests with coverage
         env:
           REDIS_URL: redis://localhost:6379/0
           USE_REDIS: "false"
-        run: pytest tests/ -q
+        run: pytest tests/ -q --cov=backend --cov-report=term-missing --cov-fail-under=55
 
       - name: Run Redis integration tests
         env:
@@ -48,3 +50,13 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t agent-connect:test .
+
+      - name: Smoke test container
+        run: |
+          docker run -d --name ac-smoke -p 18000:8000 \
+            -e USE_REDIS=false \
+            -e USE_QDRANT=false \
+            agent-connect:test
+          sleep 5
+          docker exec ac-smoke python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
+          docker stop ac-smoke

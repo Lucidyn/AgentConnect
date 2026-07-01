@@ -22,6 +22,8 @@ class MessageIntent(str, Enum):
     APPROVAL_REQUEST = "approval_request"
     AGENT_QUERY = "agent_query"
     AGENT_ANSWER = "agent_answer"
+    NEGOTIATION_QUESTION = "negotiation_question"
+    NEGOTIATION_DECISION = "negotiation_decision"
     KNOWLEDGE_SHARE = "knowledge_share"
 
 
