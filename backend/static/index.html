@@ -823,22 +823,25 @@
     }
 
     async function apiFetch(url, options = {}) {
-      const headers = { ...(options.headers || {}) };
+      const { silent = false, ...fetchOptions } = options;
+      const headers = { ...(fetchOptions.headers || {}) };
       const key = getApiKey();
       if (key) headers['X-API-Key'] = key;
-      if (options.body && !headers['Content-Type']) {
+      if (fetchOptions.body && !headers['Content-Type']) {
         headers['Content-Type'] = 'application/json';
       }
-      const res = await fetch(url, { ...options, headers });
-      if (res.status === 401) {
-        showToast('API Key 无效或未填写 — 请在右上角配置', 'error');
-      } else if (!res.ok) {
-        let detail = res.statusText;
-        try {
-          const err = await res.json();
-          detail = err.detail || err.error || JSON.stringify(err);
-        } catch (e) { /* ignore */ }
-        showToast(`请求失败 (${res.status}): ${detail}`, 'error');
+      const res = await fetch(url, { ...fetchOptions, headers });
+      if (!silent) {
+        if (res.status === 401) {
+          showToast('API Key 无效或未填写 — 请在右上角配置', 'error');
+        } else if (!res.ok) {
+          let detail = res.statusText;
+          try {
+            const err = await res.clone().json();
+            detail = err.detail || err.error || JSON.stringify(err);
+          } catch (e) { /* ignore */ }
+          showToast(`请求失败 (${res.status}): ${detail}`, 'error');
+        }
       }
       return res;
     }
@@ -1005,7 +1008,17 @@
     async function loadWorkspace(taskId) {
       const el = document.getElementById('blackboard');
       try {
-        const res = await apiFetch(`/tasks/${taskId}/workspace`);
+        const res = await apiFetch(`/tasks/${taskId}/workspace`, { silent: true });
+        if (res.status === 404) {
+          // Older API builds may lack /workspace — fall back to task snapshot
+          const taskRes = await apiFetch(`/tasks/${taskId}`, { silent: true });
+          if (!taskRes.ok) return;
+          const taskData = await taskRes.json();
+          const plan = taskData.task?.plan;
+          if (plan?.assignments) renderTopology(plan.assignments);
+          return;
+        }
+        if (!res.ok) return;
         const data = await res.json();
         if (data.error) return;
         if (data.plan && data.plan.assignments) {
@@ -1069,7 +1082,8 @@
     async function loadTimeline(taskId) {
       const el = document.getElementById('timeline');
       try {
-        const res = await apiFetch(`/tasks/${taskId}/timeline`);
+        const res = await apiFetch(`/tasks/${taskId}/timeline`, { silent: true });
+        if (!res.ok) return;
         const data = await res.json();
         if (!data.events || !data.events.length) {
           el.innerHTML = '<div class="empty">暂无事件</div>';
