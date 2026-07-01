@@ -19,12 +19,12 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - USE_REDIS=true
-      - USE_QDRANT=true
+      - DISTRIBUTED_WORKERS=true
+      - WORKER_AGENTS=Research,Coder,Writer,Analyst,Translator,Reviewer,TestRunner
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - API_KEY=${API_KEY:-}
       - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-120}
-      - NEGOTIATION_MAX_ROUNDS=${NEGOTIATION_MAX_ROUNDS:-2}
     depends_on:
       redis:
         condition: service_healthy
@@ -45,6 +45,51 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  worker-research:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - USE_REDIS=true
+      - WORKER_MODE=true
+      - WORKER_AGENT_NAME=Research
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - app_data:/app/data
+    command: python -m backend.worker.run
+
+  worker-coder:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - USE_REDIS=true
+      - WORKER_MODE=true
+      - WORKER_AGENT_NAME=Coder
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - app_data:/app/data
+    command: python -m backend.worker.run
+
+  worker-reviewer:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - USE_REDIS=true
+      - WORKER_MODE=true
+      - WORKER_AGENT_NAME=Reviewer
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - app_data:/app/data
+    command: python -m backend.worker.run
 
 volumes:
   redis_data:

@@ -8,6 +8,7 @@ import time
 from typing import Awaitable, Callable
 
 from backend.config import settings
+from backend.constants import PLANNER
 from backend.core.agent import Agent
 from backend.core.llm import LLMClient
 from backend.core.message_bus import InMemoryMessageBus, MessageBus, ReliableMessageBus, create_message_bus
@@ -27,7 +28,9 @@ from backend.core.services import AgentServices
 from backend.core.shared_memory import SharedMemory, create_shared_memory
 from backend.core.task_queue import TaskQueue
 from backend.core.task_store import TaskStore
-from backend.models.message import Message, MessageType
+from backend.core.worker_dispatcher import WorkerDispatcher
+from backend.core.worker_stream import create_worker_stream, default_consumer_name, parse_remote_agents
+from backend.models.message import Message, MessageIntent, MessageType
 from backend.models.task import TaskRecord, TaskStatus
 from backend.plugins.loader import load_agent_plugins, load_tool_registry
 from backend.tools.registry import ToolRegistry
@@ -52,6 +55,10 @@ class Platform:
         self._ws_listeners: list[Callable[[Message], Awaitable[None]]] = []
         self._running = False
         self._retry_task: asyncio.Task | None = None
+        self._result_task: asyncio.Task | None = None
+        self._worker_hub = None
+        self._remote_agents: set[str] = set()
+        self._result_consumer = default_consumer_name()
 
     @property
     def agent_runtimes(self) -> dict[str, str]:
@@ -86,6 +93,27 @@ class Platform:
 
         agent_classes, plugin_configs = load_agent_plugins(settings.enabled_agents)
         self._plugin_configs = plugin_configs
+        agent_names = [cls.name for cls in agent_classes]
+        self._remote_agents = parse_remote_agents(agent_names)
+
+        worker_hub = None
+        worker_dispatcher = None
+        if settings.distributed_workers:
+            worker_hub = await create_worker_stream()
+            self._worker_hub = worker_hub
+            worker_dispatcher = WorkerDispatcher(worker_hub, self._remote_agents)
+            logger.info(
+                "Distributed workers enabled — remote agents: %s",
+                sorted(self._remote_agents),
+            )
+
+        mount_classes = agent_classes
+        if settings.distributed_workers:
+            mount_classes = [
+                cls
+                for cls in agent_classes
+                if cls.name == PLANNER or cls.name not in self._remote_agents
+            ]
 
         services = AgentServices(
             bus=self.bus,
@@ -96,9 +124,11 @@ class Platform:
             task_store=self.task_store,
             on_task_finished=self._on_task_finished,
             plugin_configs=plugin_configs,
+            worker_hub=worker_hub,
+            worker_dispatcher=worker_dispatcher,
         )
 
-        for cls in agent_classes:
+        for cls in mount_classes:
             agent = cls(services)
             runtime_name = plugin_configs.get(agent.name.lower(), {}).get("runtime", "native")
             runtime = get_runtime(runtime_name)
@@ -107,11 +137,14 @@ class Platform:
             await runtime.mount(agent)
 
         logger.info(
-            "Platform started with %d agents (runtimes: %s)",
+            "Platform started with %d agents (runtimes: %s, distributed=%s)",
             len(self.agents),
             self._agent_runtimes,
+            settings.distributed_workers,
         )
         self._retry_task = asyncio.create_task(self._retry_loop())
+        if settings.distributed_workers and self._worker_hub:
+            self._result_task = asyncio.create_task(self._worker_result_loop())
         await self._bootstrap_queue()
 
     async def _retry_loop(self) -> None:
@@ -131,6 +164,66 @@ class Platform:
                 logger.info("Retrying message %s (attempt %d)", message.id, retries)
                 await self.bus.publish(message, track=False)
 
+    async def _worker_result_loop(self) -> None:
+        """Consume worker results and inject into Planner via message bus."""
+        hub = self._worker_hub
+        if not hub or not self.bus:
+            return
+        while self._running:
+            try:
+                batch = await hub.consume_results(
+                    consumer=self._result_consumer,
+                    count=10,
+                    block_ms=1000,
+                )
+                for stream_id, result in batch:
+                    await self._inject_worker_result(result)
+                    await hub.ack_result(stream_id, self._result_consumer)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("Worker result loop error")
+                await asyncio.sleep(1)
+
+    async def _inject_worker_result(self, result) -> None:
+        from backend.core.worker_protocol import WorkerResultEnvelope
+
+        assert isinstance(result, WorkerResultEnvelope)
+        assert self.bus
+        if result.success:
+            message = Message(
+                from_agent=result.agent,
+                to_agent=PLANNER,
+                content=result.content,
+                message_type=MessageType.RESPONSE,
+                task_id=result.task_id,
+                trace_id=result.task_id,
+                metadata={
+                    "intent": MessageIntent.ASSIGNMENT_RESULT.value,
+                    "assignment_id": result.assignment_id,
+                    "attempt": result.metadata.get("attempt", 0),
+                    "worker_envelope_id": result.envelope_id,
+                },
+            )
+        else:
+            message = Message(
+                from_agent=result.agent,
+                to_agent=PLANNER,
+                content=result.error or "worker error",
+                message_type=MessageType.ERROR,
+                task_id=result.task_id,
+                trace_id=result.task_id,
+                metadata={
+                    "intent": MessageIntent.ASSIGNMENT_ERROR.value,
+                    "assignment_id": result.assignment_id,
+                    "attempt": result.metadata.get("attempt", 0),
+                    "worker_envelope_id": result.envelope_id,
+                },
+            )
+        message.with_trace()
+        await self.bus.publish(message)
+        await self.task_store.log_message(message)
+
     async def _bootstrap_queue(self) -> None:
         """Recover stale tasks and fill available slots from queue."""
         await self.task_store.recover_stale_tasks()
@@ -147,6 +240,12 @@ class Platform:
 
     async def stop(self) -> None:
         self._running = False
+        if self._result_task:
+            self._result_task.cancel()
+            try:
+                await self._result_task
+            except asyncio.CancelledError:
+                pass
         if self._retry_task:
             self._retry_task.cancel()
             try:
@@ -164,6 +263,9 @@ class Platform:
         await self.registry.disconnect()
         if self.message_outbox:
             await self.message_outbox.disconnect()
+        if self._worker_hub:
+            await self._worker_hub.disconnect()
+            self._worker_hub = None
 
     async def _on_task_finished(self, task_id: str) -> None:
         if not self.task_queue or not self.bus:

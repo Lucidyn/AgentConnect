@@ -1,87 +1,102 @@
 # Phase 3 — Negotiation Protocol & Distributed Workers
 
-## 1. Negotiation protocol (v0.8)
+## 1. Negotiation protocol (v0.8) ✅
 
-### Message intents
-
-| Intent | Direction | Purpose |
-|--------|-----------|---------|
-| `negotiation_question` | Planner → Agent | Ask upstream to clarify an open question |
-| `negotiation_decision` | Planner → Agent | Record agreed answer on blackboard |
-| `agent_query` / `agent_answer` | Agent ↔ Agent | Ad-hoc bounded queries (existing) |
-
-### Runtime flow (single-node)
-
-1. Agent completes assignment → facts posted to blackboard.
-2. Output lines ending with `?` become `open_questions`.
-3. If `negotiation=true` and `collaboration_mode=blackboard`:
-   - `run_negotiation_round()` resolves one question per step using upstream `ctx.results`.
-   - Answer posted as `decision` on blackboard; question marked `[resolved]`.
-   - `negotiation_state.round` increments until `NEGOTIATION_MAX_ROUNDS`.
-4. Next assignment dispatch includes blackboard + unresolved questions.
-
-### Configuration
+See runtime flow in `backend/core/negotiation.py`.
 
 ```bash
 NEGOTIATION_MAX_ROUNDS=2
 ```
 
-## 2. Distributed workers (design)
+## 2. Distributed workers (v0.9) ✅
 
-### Current constraint
-
-- All agents run **in-process** inside `Platform.start()`.
-- Redis is used for pub/sub only, not assignment distribution.
-- `MAX_CONCURRENT_TASKS` is enforced in a single API process.
-
-### Target architecture
+### Architecture
 
 ```
-┌─────────────┐     enqueue      ┌──────────────────┐
-│  API /      │ ───────────────► │ Redis Stream     │
-│  Planner    │                  │ ac:assignments   │
-└─────────────┘                  └────────┬─────────┘
-                                          │ XREADGROUP
-                    ┌─────────────────────┼─────────────────────┐
-                    ▼                     ▼                     ▼
-              ┌──────────┐         ┌──────────┐         ┌──────────┐
-              │ Worker   │         │ Worker   │         │ Worker   │
-              │ Research │         │ Coder    │         │ Writer   │
-              └────┬─────┘         └────┬─────┘         └────┬─────┘
-                   │                    │                    │
-                   └────────────────────┼────────────────────┘
-                                        ▼
-                              ┌──────────────────┐
-                              │ Redis Stream     │
-                              │ ac:results       │
-                              └────────┬─────────┘
-                                       ▼
-                              ┌──────────────────┐
-                              │ Planner /        │
-                              │ PlanOrchestrator │
-                              └──────────────────┘
+┌─────────────┐  XADD assignments   ┌──────────────────┐
+│ API +       │ ──────────────────► │ Redis Stream     │
+│ Planner     │                     │ ac:assignments   │
+└──────┬──────┘                     └────────┬─────────┘
+       │ XREADGROUP results                  │ XREADGROUP
+       │                                     ▼
+       │              ┌──────────────────────────────────┐
+       │              │ Worker processes (one agent each)   │
+       │              │  Research / Coder / Reviewer / ...  │
+       │              └──────────────────┬───────────────┘
+       │                                 │ XADD results
+       ▼                                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ Redis Stream ac:results → API injects Message → Planner   │
+└──────────────────────────────────────────────────────────┘
 ```
+
+### Components
+
+| Module | Role |
+|--------|------|
+| `backend/core/worker_stream.py` | Redis / in-memory stream hub |
+| `backend/core/worker_dispatcher.py` | Route assignments remote vs local |
+| `backend/core/worker_runner.py` | Execute assignment on worker agent |
+| `backend/worker/platform.py` | Worker process bootstrap |
+| `backend/worker/run.py` | CLI entry |
+
+### Enable distributed mode
+
+**API / Planner process:**
+
+```bash
+DISTRIBUTED_WORKERS=true
+USE_REDIS=true
+WORKER_AGENTS=Research,Coder,Reviewer   # empty = all non-Planner agents
+```
+
+**Worker processes (one per agent):**
+
+```bash
+WORKER_MODE=true
+WORKER_AGENT_NAME=Coder
+USE_REDIS=true
+REDIS_URL=redis://localhost:6379/0
+python -m backend.worker.run
+```
+
+**Docker Compose (multi-container):**
+
+```bash
+docker compose up --build
+# api + worker-research + worker-coder + worker-reviewer
+```
+
+### Local dev without Redis
+
+Tests use a shared in-memory stream (`USE_REDIS=false` + `DISTRIBUTED_WORKERS=true`) in a single pytest process.
 
 ### Envelope schemas
 
-See `backend/core/worker_protocol.py`:
+`backend/core/worker_protocol.py`:
 
-- `WorkerTaskEnvelope` — assignment dispatched to worker
-- `WorkerResultEnvelope` — result returned to orchestrator
+- `WorkerTaskEnvelope` — Planner → worker
+- `WorkerResultEnvelope` — worker → Planner
 
-### Rollout steps
+### Rollout status
 
-1. **3a** — Negotiation protocol in-process (done in v0.8).
-2. **3b** — `WORKER_MODE=true` stub process (`python -m backend.worker.run`).
-3. **3c** — Planner publishes `WorkerTaskEnvelope` to Redis Stream instead of in-process `send()`.
-4. **3d** — Worker processes load agent plugins; publish `WorkerResultEnvelope`.
-5. **3e** — Horizontal API replicas + shared SQLite/Postgres task store.
+| Step | Status |
+|------|--------|
+| 3a Negotiation in-process | ✅ |
+| 3b Worker CLI scaffold | ✅ |
+| 3c Planner publishes to stream | ✅ |
+| 3d Workers execute + publish results | ✅ |
+| 3e Horizontal API + shared DB | 📋 Postgres migration TBD |
 
 ### Environment
 
 ```bash
-WORKER_MODE=false          # true = run standalone worker loop
+DISTRIBUTED_WORKERS=false
+WORKER_MODE=false
+WORKER_AGENT_NAME=
+WORKER_AGENTS=
 WORKER_STREAM_KEY=ac:assignments
 WORKER_RESULT_STREAM_KEY=ac:results
+WORKER_CONSUMER_GROUP=ac-workers
 WORKER_POLL_INTERVAL=2
 ```

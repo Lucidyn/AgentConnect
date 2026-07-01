@@ -9,6 +9,8 @@ from backend.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
     from backend.core.task_store import TaskStore
+    from backend.core.worker_dispatcher import WorkerDispatcher
+    from backend.core.worker_stream import WorkerStreamHub
 
 OnTaskFinished = Callable[[str], Awaitable[None]]
 
@@ -23,3 +25,5 @@ class AgentServices:
     task_store: "TaskStore | None" = None
     on_task_finished: OnTaskFinished | None = None
     plugin_configs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    worker_hub: "WorkerStreamHub | None" = None
+    worker_dispatcher: "WorkerDispatcher | None" = None

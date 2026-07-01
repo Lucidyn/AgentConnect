@@ -82,16 +82,22 @@ class PlanOrchestrator:
         if increment_attempt:
             assignment.attempt += 1
         task = build_assignment_task(assignment, plan, ctx)
-        await self._planner.send(
-            assignment.agent,
-            task,
-            message_type=MessageType.TASK,
-            metadata={
-                "intent": MessageIntent.ASSIGNMENT_START.value,
-                "assignment_id": assignment.id,
-                "attempt": assignment.attempt,
-            },
-        )
+        dispatcher = self.services.worker_dispatcher
+        if dispatcher:
+            await dispatcher.send_assignment(
+                self._planner, assignment, plan, ctx, task
+            )
+        else:
+            await self._planner.send(
+                assignment.agent,
+                task,
+                message_type=MessageType.TASK,
+                metadata={
+                    "intent": MessageIntent.ASSIGNMENT_START.value,
+                    "assignment_id": assignment.id,
+                    "attempt": assignment.attempt,
+                },
+            )
 
     async def dispatch_ready(self, plan: TaskPlan, ctx: TaskContext) -> int:
         count = 0

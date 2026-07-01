@@ -49,4 +49,7 @@ async def health():
         "message_reliability": settings.message_reliability,
         "runtimes": list_runtimes(),
         "agent_runtimes": platform.agent_runtimes,
+        "distributed_workers": settings.distributed_workers,
+        "remote_agents": sorted(getattr(platform, "_remote_agents", [])),
+        "worker_mode": settings.worker_mode,
     }

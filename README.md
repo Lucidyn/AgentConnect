@@ -24,7 +24,7 @@
                 Final Result
 ```
 
-> **部署模型**：当前为**单进程**编排（所有 Agent 在 API 进程内运行）。Redis 用于 pub/sub 与消息可靠性；Phase 3 分布式 worker 设计见 [`docs/phase3-architecture.md`](docs/phase3-architecture.md)。
+> **部署模型**：默认单进程。设置 `DISTRIBUTED_WORKERS=true` 后，Planner 在 API 进程，Worker Agent 在独立进程（Redis Stream）。见 [`docs/phase3-architecture.md`](docs/phase3-architecture.md)。
 
 ## 快速开始
 
@@ -100,6 +100,23 @@ curl -X POST http://localhost:8000/tasks \
 ```
 
 协商协议：开放问题 → 上游 Agent 答复 → 写入黑板（见 Phase 3 文档）。
+
+Docker Compose（分布式 Worker）：
+
+```bash
+DISTRIBUTED_WORKERS=true docker compose up --build
+# 启动 api + worker-research + worker-coder + worker-reviewer
+```
+
+单 Worker 本地调试：
+
+```bash
+# 终端 1 — API
+DISTRIBUTED_WORKERS=true USE_REDIS=true python -m backend.run
+
+# 终端 2 — Coder worker
+WORKER_MODE=true WORKER_AGENT_NAME=Coder USE_REDIS=true python -m backend.worker.run
+```
 
 ## 配置
 
@@ -192,9 +209,17 @@ agent_connect/
 |------|------|------|
 | Phase 1 | Message Bus + Agent + Registry | ✅ |
 | Phase 2 | DAG 并行、审批、Prometheus、Outbox | ✅ |
-| **v0.8** | 模板、DAG 编排 UI、黑板、协商协议、API 加固 | ✅ 当前 |
-| Phase 3a | 协商协议（进程内） | ✅ v0.8 |
-| Phase 3b–e | 分布式 Worker（Redis Stream） | 📋 设计完成，见 docs |
+| **v0.8** | 模板、DAG 编排 UI、黑板、协商协议、API 加固 | ✅ |
+| **v0.9** | Phase 3 分布式 Worker（Redis Stream） | ✅ 当前 |
+| Phase 3e | 多 API 副本 + Postgres 任务库 | 📋 规划中 |
+
+### v0.9 新增
+
+- **分布式 Worker**：`DISTRIBUTED_WORKERS` + Redis Stream 任务分发
+- **Worker 进程**：`python -m backend.worker.run`（`WORKER_AGENT_NAME` 指定 Agent）
+- **结果回传**：Worker → `ac:results` → API 注入 Planner
+- **Docker Compose**：`worker-research` / `worker-coder` / `worker-reviewer` 服务
+- **健康检查**：`/health` 返回 `distributed_workers` 与 `remote_agents`
 
 ### v0.8 新增
 

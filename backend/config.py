@@ -64,10 +64,15 @@ class Settings(BaseSettings):
     # Negotiation
     negotiation_max_rounds: int = 2
 
-    # Phase 3 worker scaffold
+    # Phase 3 distributed workers
+    distributed_workers: bool = False
     worker_mode: bool = False
+    worker_agent_name: str = ""
+    worker_agents: str = ""
     worker_stream_key: str = "ac:assignments"
     worker_result_stream_key: str = "ac:results"
+    worker_consumer_group: str = "ac-workers"
+    worker_consumer_name: str = ""
     worker_poll_interval: float = 2.0
 
 
