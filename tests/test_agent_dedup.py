@@ -27,6 +27,15 @@ class EchoAgent(Agent):
         return f"echo:{message.content}"
 
 
+class FailingAgent(Agent):
+    name = "Failing"
+    role = "test"
+    capabilities = ["fail"]
+
+    async def think(self, message: Message) -> str | None:
+        raise RuntimeError("boom")
+
+
 @pytest.mark.asyncio
 async def test_mark_message_processed_persists(db_path):
     store = TaskStore(db_path)
@@ -87,6 +96,47 @@ async def test_agent_dedup_survives_memory_reset(isolated_paths):
     assert EchoAgent.think_count == 1
 
     await agent2.stop()
+    await bus.disconnect()
+    await store.disconnect()
+    await registry.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_failed_message_is_not_marked_processed(isolated_paths):
+    registry = AgentRegistry(isolated_paths["registry"])
+    await registry.connect()
+    store = TaskStore(isolated_paths["tasks"])
+    await store.connect()
+    task = await store.create("fail agent", status=TaskStatus.RUNNING)
+
+    bus = InMemoryMessageBus()
+    await bus.connect()
+    services = AgentServices(
+        bus=bus,
+        registry=registry,
+        llm=LLMClient(),
+        shared_memory=InMemorySharedMemory(),
+        tools=ToolRegistry(),
+        task_store=store,
+    )
+
+    agent = FailingAgent(services)
+    await agent.register()
+    await agent.start()
+
+    msg = Message(
+        from_agent="User",
+        to_agent="Failing",
+        content="hello",
+        message_type=MessageType.TASK,
+        task_id=task.id,
+    ).with_trace()
+    await bus.publish(msg)
+    await asyncio.sleep(0.15)
+
+    assert not await store.is_message_processed(task.id, msg.id)
+
+    await agent.stop()
     await bus.disconnect()
     await store.disconnect()
     await registry.disconnect()

@@ -7,6 +7,28 @@ from backend.models.plan import TaskAssignment, TaskPlan
 from backend.models.task_context import TaskContext
 
 
+def _transitive_dep_ids(plan: TaskPlan, assignment: TaskAssignment) -> list[str]:
+    """Collect upstream dependency ids in execution order."""
+    by_id = {item.id: item for item in plan.assignments}
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def visit(dep_id: str) -> None:
+        if dep_id in seen:
+            return
+        dep = by_id.get(dep_id)
+        if not dep:
+            return
+        for upstream in dep.depends_on:
+            visit(upstream)
+        seen.add(dep_id)
+        ordered.append(dep_id)
+
+    for dep_id in assignment.depends_on:
+        visit(dep_id)
+    return ordered
+
+
 def build_assignment_task(
     assignment: TaskAssignment,
     plan: TaskPlan,
@@ -15,7 +37,7 @@ def build_assignment_task(
     """Inject upstream dependency results into the assignment task text."""
     parts: list[str] = []
 
-    for dep_id in assignment.depends_on:
+    for dep_id in _transitive_dep_ids(plan, assignment):
         content = ctx.results.get(dep_id, "")
         if not content:
             continue

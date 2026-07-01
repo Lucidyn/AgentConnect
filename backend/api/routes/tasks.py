@@ -59,6 +59,12 @@ async def get_task_messages(task_id: str):
     return {"task_id": task_id, "messages": [m.model_dump() for m in messages]}
 
 
+@router.get("/{task_id}/artifacts")
+async def get_task_artifacts(task_id: str):
+    artifacts = await platform.task_store.list_artifacts(task_id)
+    return {"task_id": task_id, "artifacts": [a.model_dump(mode="json") for a in artifacts]}
+
+
 @router.get("/{task_id}/timeline")
 async def get_task_timeline(task_id: str):
     task = await platform.task_store.get(task_id)

@@ -7,6 +7,21 @@ from pydantic import BaseModel
 from backend.models.plan import TaskAssignment, TaskPlan
 
 
+class LoopState(BaseModel):
+    iteration: int = 0
+    max_iterations: int = 3
+    feedback: str = ""
+    status: str = "running"  # running | passed | failed
+
+
+class WorkspaceState(BaseModel):
+    facts: list[str] = []
+    decisions: list[str] = []
+    open_questions: list[str] = []
+    blockers: list[str] = []
+    artifacts: list[str] = []
+
+
 class TaskContext(BaseModel):
     research_result: str = ""
     coder_result: str = ""
@@ -17,6 +32,8 @@ class TaskContext(BaseModel):
     processed_message_ids: list[str] = []
     assignment_retries: dict[str, int] = {}
     retry_feedback: str = ""
+    loops: dict[str, LoopState] = {}
+    workspace: WorkspaceState = WorkspaceState()
 
     @staticmethod
     def plan_from_record(plan_data: dict | None) -> TaskPlan | None:

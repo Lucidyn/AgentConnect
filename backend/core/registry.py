@@ -146,5 +146,13 @@ class AgentRegistry:
         lines = []
         for agent in self.list_agents():
             caps = ", ".join(agent.capabilities)
-            lines.append(f"- {agent.name} ({agent.role}): {agent.description} [{caps}]")
+            contract = []
+            if agent.inputs:
+                contract.append(f"inputs={','.join(agent.inputs)}")
+            if agent.outputs:
+                contract.append(f"outputs={','.join(agent.outputs)}")
+            if agent.accepts:
+                contract.append(f"accepts={','.join(agent.accepts)}")
+            suffix = f" ({'; '.join(contract)})" if contract else ""
+            lines.append(f"- {agent.name} ({agent.role}): {agent.description} [{caps}]{suffix}")
         return "\n".join(lines)

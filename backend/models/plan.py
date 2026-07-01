@@ -17,6 +17,8 @@ class TaskAssignment(BaseModel):
     task: str
     status: AssignmentStatus = AssignmentStatus.PENDING
     depends_on: list[str] = Field(default_factory=list)
+    attempt: int = 0
+    reason: str = ""
 
 
 class TaskPlan(BaseModel):
@@ -91,15 +93,44 @@ class TaskPlan(BaseModel):
                     return assignment
         return None
 
-    def reset_to_pending(self, assignment_id: str) -> TaskAssignment | None:
+    def downstream_ids(self, assignment_id: str) -> set[str]:
+        """All assignments that transitively depend on assignment_id."""
+        downstream: set[str] = set()
+        changed = True
+        while changed:
+            changed = False
+            for assignment in self.assignments:
+                if assignment.id in downstream or assignment.id == assignment_id:
+                    continue
+                if any(
+                    dep == assignment_id or dep in downstream for dep in assignment.depends_on
+                ):
+                    downstream.add(assignment.id)
+                    changed = True
+        return downstream
+
+    def reset_to_pending(self, assignment_id: str, *, cascade: bool = True) -> list[str]:
+        """Reset an assignment (and optionally its downstream) back to pending."""
+        reset_ids: list[str] = []
+        target = self.find_assignment(assignment_id=assignment_id)
+        if not target or target.status not in (
+            AssignmentStatus.DONE,
+            AssignmentStatus.RUNNING,
+        ):
+            return reset_ids
+
+        ids_to_reset = {assignment_id}
+        if cascade:
+            ids_to_reset |= self.downstream_ids(assignment_id)
+
         for assignment in self.assignments:
-            if assignment.id == assignment_id and assignment.status in (
+            if assignment.id in ids_to_reset and assignment.status in (
                 AssignmentStatus.DONE,
                 AssignmentStatus.RUNNING,
             ):
                 assignment.status = AssignmentStatus.PENDING
-                return assignment
-        return None
+                reset_ids.append(assignment.id)
+        return reset_ids
 
     def validate(self) -> list[str]:
         from backend.core.plan_validate import validate_assignments

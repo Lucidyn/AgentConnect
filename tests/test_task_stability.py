@@ -27,6 +27,24 @@ async def test_task_queue_respects_concurrency_limit(db_path, monkeypatch):
     next_task = await queue.on_task_finished(t1.id)
     assert next_task is not None
     assert next_task.id == t2.id
+    assert next_task.status == TaskStatus.SUBMITTED
+
+    await store.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_dequeue_claims_task_atomically(db_path):
+    store = TaskStore(db_path)
+    await store.connect()
+
+    queued = await store.create("queued", status=TaskStatus.QUEUED)
+    claimed = await store.dequeue()
+
+    assert claimed is not None
+    assert claimed.id == queued.id
+    assert claimed.status == TaskStatus.SUBMITTED
+    assert (await store.get(queued.id)).status == TaskStatus.SUBMITTED
+    assert await store.dequeue() is None
 
     await store.disconnect()
 

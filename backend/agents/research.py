@@ -24,6 +24,9 @@ class ResearchAgent(Agent):
     role = "researcher"
     capabilities = ["search", "documentation", "paper_lookup", "api_research", "arxiv", "github"]
     description = "搜索资料、查 Arxiv 论文、查 GitHub 开源项目"
+    inputs = ["task"]
+    outputs = ["research_report"]
+    accepts = ["assignment_start", "agent_query"]
 
     async def think(self, message: Message) -> str | None:
         task = message.content

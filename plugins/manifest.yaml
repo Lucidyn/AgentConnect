@@ -15,6 +15,10 @@ agents:
     module: backend.agents.coder
     class: CoderAgent
     enabled: true
+  - name: test_runner
+    module: backend.agents.test_runner
+    class: TestRunnerAgent
+    enabled: true
   - name: reviewer
     module: backend.agents.reviewer
     class: ReviewerAgent

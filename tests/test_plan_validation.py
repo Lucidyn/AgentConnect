@@ -173,10 +173,186 @@ async def test_reviewer_retry_goes_through_planner(isolated_paths, patch_setting
     coder = reloaded.find_assignment(assignment_id="t2")
     assert coder.status == AssignmentStatus.RUNNING
     reviewer = reloaded.find_assignment(assignment_id="t3")
-    assert reviewer.status == AssignmentStatus.RUNNING
+    assert reviewer.status == AssignmentStatus.PENDING
 
     saved_ctx = TaskContext.model_validate((await store.get(task.id)).context or {})
     assert "缺少异常处理" in saved_ctx.retry_feedback
+
+    await planner.stop()
+    await bus.disconnect()
+    await store.disconnect()
+    await registry.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_reviewer_loop_enters_approval_after_max_iterations(
+    isolated_paths, patch_settings
+):
+    from backend.agents.planner import PlannerAgent
+    from backend.constants import PLANNER, REVIEWER
+    from backend.core.llm import LLMClient
+    from backend.core.message_bus import InMemoryMessageBus
+    from backend.core.registry import AgentRegistry
+    from backend.core.services import AgentServices
+    from backend.core.shared_memory import InMemorySharedMemory
+    from backend.core.task_store import TaskStore
+    from backend.models.message import Message, MessageType
+    from backend.models.task import TaskStatus
+    from backend.tools.registry import ToolRegistry
+
+    patch_settings(enabled_agents="planner,research,coder,reviewer", loop_max_iterations=1)
+
+    registry = AgentRegistry(isolated_paths["registry"])
+    await registry.connect()
+    store = TaskStore(isolated_paths["tasks"])
+    await store.connect()
+    task = await store.create("review loop", status=TaskStatus.RUNNING)
+
+    plan = TaskPlan(
+        summary="pipe",
+        assignments=[
+            TaskAssignment(id="t1", agent="Research", task="a", status=AssignmentStatus.DONE),
+            TaskAssignment(id="t2", agent="Coder", task="b", status=AssignmentStatus.DONE, depends_on=["t1"]),
+            TaskAssignment(
+                id="t3", agent="Reviewer", task="c", status=AssignmentStatus.RUNNING, depends_on=["t2"]
+            ),
+        ],
+    )
+    await store.save_plan(task.id, plan.to_context())
+    await store.save_context(
+        task.id,
+        TaskContext(results={"t1": "r", "t2": "bad code"}, coder_result="bad code").model_dump(),
+    )
+
+    bus = InMemoryMessageBus()
+    await bus.connect()
+    services = AgentServices(
+        bus=bus,
+        registry=registry,
+        llm=LLMClient(),
+        shared_memory=InMemorySharedMemory(),
+        tools=ToolRegistry(),
+        task_store=store,
+    )
+    planner = PlannerAgent(services)
+    await planner.register()
+    await planner.start()
+
+    def retry_msg() -> Message:
+        return Message(
+            from_agent=REVIEWER,
+            to_agent=PLANNER,
+            content="审查发现问题，请修改：缺少异常处理",
+            message_type=MessageType.RESPONSE,
+            task_id=task.id,
+            metadata={"needs_retry": True, "assignment_id": "t3"},
+        ).with_trace()
+
+    await bus.publish(retry_msg())
+    await asyncio.sleep(0.2)
+
+    ctx = TaskContext.model_validate((await store.get(task.id)).context or {})
+    assert ctx.loops["t2"].iteration == 1
+    assert ctx.loops["t2"].status == "running"
+
+    await bus.publish(retry_msg())
+    await asyncio.sleep(0.2)
+
+    final = await store.get(task.id)
+    ctx = TaskContext.model_validate(final.context or {})
+    assert final.status == TaskStatus.WAITING_APPROVAL
+    assert ctx.loops["t2"].status == "failed"
+    assert ctx.approval_assignment_id == "t3"
+    assert "Loop exceeded" in ctx.approval_message
+
+    await planner.stop()
+    await bus.disconnect()
+    await store.disconnect()
+    await registry.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_planner_ignores_stale_assignment_attempt(isolated_paths, patch_settings):
+    from backend.agents.planner import PlannerAgent
+    from backend.constants import CODER, PLANNER
+    from backend.core.llm import LLMClient
+    from backend.core.message_bus import InMemoryMessageBus
+    from backend.core.registry import AgentRegistry
+    from backend.core.services import AgentServices
+    from backend.core.shared_memory import InMemorySharedMemory
+    from backend.core.task_store import TaskStore
+    from backend.models.message import Message, MessageType
+    from backend.models.task import TaskStatus
+    from backend.tools.registry import ToolRegistry
+
+    patch_settings(enabled_agents="planner,research,coder,reviewer")
+
+    registry = AgentRegistry(isolated_paths["registry"])
+    await registry.connect()
+    store = TaskStore(isolated_paths["tasks"])
+    await store.connect()
+    task = await store.create("stale attempt", status=TaskStatus.RUNNING)
+
+    plan = TaskPlan(
+        summary="pipe",
+        assignments=[
+            TaskAssignment(
+                id="t1",
+                agent=CODER,
+                task="code",
+                status=AssignmentStatus.RUNNING,
+                attempt=2,
+            ),
+        ],
+    )
+    await store.save_plan(task.id, plan.to_context())
+
+    bus = InMemoryMessageBus()
+    await bus.connect()
+    services = AgentServices(
+        bus=bus,
+        registry=registry,
+        llm=LLMClient(),
+        shared_memory=InMemorySharedMemory(),
+        tools=ToolRegistry(),
+        task_store=store,
+    )
+    planner = PlannerAgent(services)
+    await planner.register()
+    await planner.start()
+
+    stale = Message(
+        from_agent=CODER,
+        to_agent=PLANNER,
+        content="old result",
+        message_type=MessageType.RESPONSE,
+        task_id=task.id,
+        metadata={"assignment_id": "t1", "attempt": 1},
+    ).with_trace()
+    await bus.publish(stale)
+    await asyncio.sleep(0.15)
+
+    current = TaskContext.plan_from_record((await store.get(task.id)).plan)
+    assignment = current.find_assignment(assignment_id="t1")
+    assert assignment.status == AssignmentStatus.RUNNING
+    assert assignment.attempt == 2
+    assert (await store.get(task.id)).result is None
+
+    fresh = Message(
+        from_agent=CODER,
+        to_agent=PLANNER,
+        content="new result",
+        message_type=MessageType.RESPONSE,
+        task_id=task.id,
+        metadata={"assignment_id": "t1", "attempt": 2},
+    ).with_trace()
+    await bus.publish(fresh)
+    await asyncio.sleep(0.15)
+
+    final = await store.get(task.id)
+    current = TaskContext.plan_from_record(final.plan)
+    assert current.find_assignment(assignment_id="t1").status == AssignmentStatus.DONE
+    assert final.status == TaskStatus.COMPLETED
 
     await planner.stop()
     await bus.disconnect()

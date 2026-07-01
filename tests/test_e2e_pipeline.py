@@ -26,7 +26,7 @@ async def test_full_pipeline_completes(isolated_paths, monkeypatch):
         assert message is not None
 
         final = None
-        for _ in range(40):
+        for _ in range(80):
             final = await platform.task_store.get(task.id)
             if final and final.status == TaskStatus.COMPLETED:
                 break
@@ -36,9 +36,8 @@ async def test_full_pipeline_completes(isolated_paths, monkeypatch):
         assert final.status == TaskStatus.COMPLETED
         assert final.plan is not None
         statuses = {a["id"]: a["status"] for a in final.plan["assignments"]}
+        assert all(status == "done" for status in statuses.values())
         assert statuses.get("t1") == "done"
-        assert statuses.get("t2") == "done"
-        assert statuses.get("t3") == "done"
         assert final.result
     finally:
         await platform.stop()

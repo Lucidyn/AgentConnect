@@ -15,6 +15,9 @@ class CoderAgent(Agent):
     role = "developer"
     capabilities = ["coding", "python", "docker", "api_development"]
     description = "编写代码、实现功能、生成部署配置"
+    inputs = ["research_report", "review_feedback", "test_result"]
+    outputs = ["code_patch", "implementation_notes"]
+    accepts = ["assignment_start", "retry_request", "agent_query"]
 
     async def think(self, message: Message) -> str | None:
         task = message.content

@@ -12,7 +12,7 @@ from backend.constants import MAX_PROCESSED_MESSAGE_IDS, PLANNER
 from backend.core.metrics import AGENT_THINK_SECONDS, MESSAGES_SENT
 from backend.core.services import AgentServices
 from backend.core.trace import log_event
-from backend.models.message import AgentInfo, Message, MessageType
+from backend.models.message import AgentInfo, Message, MessageIntent, MessageType
 from backend.models.task import TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -72,6 +72,9 @@ class Agent(ABC):
             role=self.role,
             capabilities=self.capabilities,
             description=self.description,
+            inputs=getattr(self, "inputs", []),
+            outputs=getattr(self, "outputs", []),
+            accepts=getattr(self, "accepts", []),
             status="idle",
         )
         await self.registry.register(info)
@@ -141,7 +144,24 @@ class Agent(ABC):
             PLANNER,
             content,
             message_type=MessageType.RESPONSE,
-            metadata={"assignment_id": message.metadata.get("assignment_id", "")},
+            metadata={
+                "intent": MessageIntent.ASSIGNMENT_RESULT.value,
+                "assignment_id": message.metadata.get("assignment_id", ""),
+                "attempt": message.metadata.get("attempt", 0),
+                "reply_to": message.id,
+            },
+        )
+
+    async def ask_agent(self, to_agent: str, question: str, reply_to: str = "") -> Message:
+        """Ask another agent a bounded question within the current task thread."""
+        return await self.send(
+            to_agent,
+            question,
+            message_type=MessageType.TASK,
+            metadata={
+                "intent": MessageIntent.AGENT_QUERY.value,
+                "reply_to": reply_to,
+            },
         )
 
     async def _on_message(self, message: Message) -> None:
@@ -187,7 +207,6 @@ class Agent(ABC):
             if await self._is_duplicate(message):
                 await self._ack_message(message.id)
                 continue
-            await self._mark_processed(message)
 
             await self.registry.update_status(self.name, "thinking")
             self._current_task_id = message.task_id or message.metadata.get("task_id", "")
@@ -213,8 +232,14 @@ class Agent(ABC):
                         message.from_agent,
                         response,
                         message_type=MessageType.RESPONSE,
-                        metadata={"reply_to": message.id},
+                        metadata={
+                            "intent": MessageIntent.AGENT_ANSWER.value
+                            if message.metadata.get("intent") == MessageIntent.AGENT_QUERY.value
+                            else MessageIntent.ASSIGNMENT_RESULT.value,
+                            "reply_to": message.id,
+                        },
                     )
+                await self._mark_processed(message)
                 await self._ack_message(message.id)
                 log_event(
                     logger,
@@ -242,7 +267,12 @@ class Agent(ABC):
                     message.from_agent,
                     f"Error: {exc}",
                     message_type=MessageType.ERROR,
-                    metadata={"assignment_id": assignment_id},
+                    metadata={
+                        "intent": MessageIntent.ASSIGNMENT_ERROR.value,
+                        "assignment_id": assignment_id,
+                        "attempt": message.metadata.get("attempt", 0),
+                        "reply_to": message.id,
+                    },
                 )
                 if is_worker_assignment:
                     await self._ack_message(message.id)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from backend.constants import PLANNER, REVIEWER
 from backend.core.agent import Agent
-from backend.models.message import Message, MessageType
+from backend.models.message import Message, MessageIntent, MessageType
 
 SYSTEM_PROMPT = """你是 Reviewer Agent，负责代码审查和质量把关。
 审查要点：
@@ -25,11 +25,15 @@ class ReviewerAgent(Agent):
     role = "reviewer"
     capabilities = ["code_review", "quality_assurance", "security_audit"]
     description = "代码审查、质量检查、安全审计"
+    inputs = ["code_patch", "test_result"]
+    outputs = ["review_result", "review_feedback"]
+    accepts = ["assignment_start"]
 
     async def think(self, message: Message) -> str | None:
         content = message.content
         fallback = self._mock_review(content)
         assignment_id = message.metadata.get("assignment_id", "")
+        attempt = message.metadata.get("attempt", 0)
 
         result = await self.llm.chat(
             SYSTEM_PROMPT,
@@ -47,7 +51,13 @@ class ReviewerAgent(Agent):
                 PLANNER,
                 f"审查发现问题，请修改：\n{result}",
                 message_type=MessageType.RESPONSE,
-                metadata={"needs_retry": True, "assignment_id": assignment_id},
+                metadata={
+                    "intent": MessageIntent.RETRY_REQUEST.value,
+                    "needs_retry": True,
+                    "assignment_id": assignment_id,
+                    "attempt": attempt,
+                    "reply_to": message.id,
+                },
             )
             return None
 
@@ -58,7 +68,13 @@ class ReviewerAgent(Agent):
                 PLANNER,
                 result,
                 message_type=MessageType.RESPONSE,
-                metadata={"needs_approval": True, "assignment_id": assignment_id},
+                metadata={
+                    "intent": MessageIntent.APPROVAL_REQUEST.value,
+                    "needs_approval": True,
+                    "assignment_id": assignment_id,
+                    "attempt": attempt,
+                    "reply_to": message.id,
+                },
             )
             return None
 

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     message_retry_grace: int = 60
     clear_failed_outbox: bool = False
     assignment_max_retries: int = 1
+    loop_max_iterations: int = 3
 
 
 settings = Settings()
