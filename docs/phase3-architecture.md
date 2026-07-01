@@ -149,9 +149,9 @@ WORKER_CONSUMER_GROUP=ac-workers
 WORKER_POLL_INTERVAL=2
 ```
 
-### Postgres integration tests
+### Postgres integration tests (local only)
 
-CI runs `pytest -m postgres` with a Postgres service. Locally:
+`tests/` is not tracked in Git. Run locally when Postgres is available:
 
 ```bash
 DATABASE_URL=postgresql://agent:agent@localhost:5432/agentconnect pytest -m postgres

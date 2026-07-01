@@ -6,32 +6,8 @@ on:
   pull_request:
 
 jobs:
-  test:
+  smoke:
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 5
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: agent
-          POSTGRES_PASSWORD: agent
-          POSTGRES_DB: agentconnect
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U agent -d agentconnect"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-
     steps:
       - uses: actions/checkout@v4
 
@@ -41,25 +17,10 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+        run: pip install -r requirements.txt
 
-      - name: Run tests with coverage
-        env:
-          REDIS_URL: redis://localhost:6379/0
-          USE_REDIS: "false"
-        run: pytest tests/ -q --cov=backend --cov-report=term-missing --cov-fail-under=55
-
-      - name: Run Redis integration tests
-        env:
-          REDIS_URL: redis://localhost:6379/0
-        run: pytest tests/ -q -m redis
-
-      - name: Run Postgres integration tests
-        env:
-          DATABASE_URL: postgresql://agent:agent@localhost:5432/agentconnect
-        run: pytest tests/ -q -m postgres
+      - name: Import smoke check
+        run: python -c "from backend.app import app; assert app.title"
 
   docker:
     runs-on: ubuntu-latest

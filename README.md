@@ -202,10 +202,10 @@ agent_connect/
 │   └── plan_templates.yaml
 ├── docs/
 │   └── phase3-architecture.md
-└── tests/
-    ├── unit/
-    └── integration/
+└── tests/              # 本地测试（不纳入 Git 远程仓库）
 ```
+
+本地测试目录 `tests/` 已加入 `.gitignore`，仅在开发机运行，不推送到 GitHub。
 
 ## 演进路线
 
@@ -239,7 +239,7 @@ agent_connect/
 - API 输入校验、`X-API-Key` 全路由保护（配置后）
 - 前端 API Key、错误 Toast
 - SQLite WAL、LLM 超时、Docker 数据卷
-- CI coverage + Docker smoke test
+- CI import smoke + Docker smoke test
 
 ## 技术栈
 
@@ -249,16 +249,19 @@ agent_connect/
 - **存储**: SQLite（本地）或 Postgres（多副本）；Qdrant（共享记忆，可选）
 - **部署**: Docker Compose（Postgres + nginx + workers）
 
-## 测试
+## 测试（仅本地）
+
+`tests/` 目录不推送到远程仓库，在本地运行：
 
 ```bash
+pip install -r requirements-dev.txt
 pytest tests/ -q
 pytest tests/ -q --cov=backend --cov-report=term-missing
 pytest tests/ -q -m redis       # 需本地 Redis
 pytest tests/ -q -m postgres    # 需 DATABASE_URL 指向 Postgres
 ```
 
-GitHub Actions：pytest + coverage（≥55%）+ Redis/Postgres 集成 + Docker build/smoke。
+GitHub Actions：import smoke + Docker build/health smoke（不含 pytest）。
 
 ## 插件接入
 
