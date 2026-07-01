@@ -3,55 +3,65 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
-
-import aiosqlite
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from backend.config import settings
+from backend.core.db.base import Database, create_database
+from backend.core.db.schema import init_schema
 from backend.models.message import Message
 
 logger = logging.getLogger(__name__)
 
 
 class MessageOutbox:
-    def __init__(self, db_path: str | None = None) -> None:
-        self._db_path = db_path or settings.tasks_db_path
-        self._db: aiosqlite.Connection | None = None
+    def __init__(self, db_or_path: Database | str | None = None) -> None:
+        if isinstance(db_or_path, Database):
+            self._db = db_or_path
+            self._db_path: str | None = None
+            self._owns_db = False
+        else:
+            self._db = None
+            self._db_path = db_or_path or settings.tasks_db_path
+            self._owns_db = False
 
     async def connect(self) -> None:
-        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._db = await aiosqlite.connect(self._db_path)
-        from backend.core.sqlite_utils import configure_sqlite
-
-        await configure_sqlite(self._db)
-        await self._db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS message_outbox (
-                message_id TEXT PRIMARY KEY,
-                channel TEXT NOT NULL,
-                message_json TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                retries INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        await self._db.commit()
+        if self._db is None:
+            self._db = await create_database(sqlite_path=self._db_path)
+            self._owns_db = True
+        await init_schema(self._db)
 
     async def disconnect(self) -> None:
-        if self._db:
-            await self._db.close()
+        if self._owns_db and self._db:
+            await self._db.disconnect()
+        self._db = None
+        self._owns_db = False
+
+    def _ts(self) -> Any:
+        now = datetime.now(timezone.utc)
+        if self._db and self._db.is_postgres:
+            return now
+        return now.isoformat()
+
+    def _enqueue_sql(self) -> str:
+        if self._db and self._db.is_postgres:
+            return """
+            INSERT INTO message_outbox
+            (message_id, channel, message_json, status, retries, created_at)
+            VALUES (?, ?, ?, 'pending', 0, ?)
+            ON CONFLICT (message_id) DO NOTHING
+            """
+        return """
+            INSERT OR IGNORE INTO message_outbox
+            (message_id, channel, message_json, status, retries, created_at)
+            VALUES (?, ?, ?, 'pending', 0, ?)
+            """
 
     async def enqueue(self, message: Message, channel: str) -> None:
         assert self._db is not None
         await self._db.execute(
-            """
-            INSERT OR IGNORE INTO message_outbox
-            (message_id, channel, message_json, status, retries, created_at)
-            VALUES (?, ?, ?, 'pending', 0, ?)
-            """,
-            (message.id, channel, message.model_dump_json(), datetime.now(timezone.utc).isoformat()),
+            self._enqueue_sql(),
+            (message.id, channel, message.model_dump_json(), self._ts()),
         )
         await self._db.commit()
 
@@ -65,19 +75,17 @@ class MessageOutbox:
 
     async def pending_for_channel(self, channel: str) -> list[Message]:
         assert self._db is not None
-        async with self._db.execute(
+        rows = await self._db.fetchall(
             "SELECT message_json FROM message_outbox WHERE channel = ? AND status = 'pending'",
             (channel,),
-        ) as cursor:
-            rows = await cursor.fetchall()
+        )
         return [Message.model_validate_json(row[0]) for row in rows]
 
     async def list_retryable(self, max_retries: int, grace_seconds: int = 60) -> list[Message]:
         assert self._db is not None
-        from datetime import timedelta
-
-        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=grace_seconds)).isoformat()
-        async with self._db.execute(
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=grace_seconds)
+        cutoff_val = cutoff if self._db.is_postgres else cutoff.isoformat()
+        rows = await self._db.fetchall(
             """
             SELECT message_json FROM message_outbox
             WHERE status = 'pending' AND retries < ?
@@ -85,9 +93,8 @@ class MessageOutbox:
             ORDER BY created_at
             LIMIT 50
             """,
-            (max_retries, cutoff),
-        ) as cursor:
-            rows = await cursor.fetchall()
+            (max_retries, cutoff_val),
+        )
         return [Message.model_validate_json(row[0]) for row in rows]
 
     async def increment_retry(self, message_id: str) -> int:
@@ -97,10 +104,10 @@ class MessageOutbox:
             (message_id,),
         )
         await self._db.commit()
-        async with self._db.execute(
-            "SELECT retries FROM message_outbox WHERE message_id = ?", (message_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
+        row = await self._db.fetchone(
+            "SELECT retries FROM message_outbox WHERE message_id = ?",
+            (message_id,),
+        )
         return row[0] if row else 0
 
     async def mark_failed(self, message_id: str) -> None:
@@ -113,27 +120,22 @@ class MessageOutbox:
 
     async def stats(self) -> dict[str, int]:
         assert self._db is not None
-        counts: dict[str, int] = {}
-        async with self._db.execute(
+        rows = await self._db.fetchall(
             "SELECT status, COUNT(*) FROM message_outbox GROUP BY status"
-        ) as cursor:
-            rows = await cursor.fetchall()
-        for status, count in rows:
-            counts[status] = count
-        return counts
+        )
+        return {status: count for status, count in rows}
 
     async def list_failed(self, limit: int = 50) -> list[Message]:
         assert self._db is not None
-        async with self._db.execute(
+        rows = await self._db.fetchall(
             "SELECT message_json FROM message_outbox WHERE status = 'failed' ORDER BY created_at DESC LIMIT ?",
             (limit,),
-        ) as cursor:
-            rows = await cursor.fetchall()
+        )
         return [Message.model_validate_json(row[0]) for row in rows]
 
     async def reset_for_retry(self, message_id: str) -> bool:
         assert self._db is not None
-        cursor = await self._db.execute(
+        count = await self._db.execute(
             """
             UPDATE message_outbox SET status = 'pending', retries = 0
             WHERE message_id = ? AND status = 'failed'
@@ -141,15 +143,14 @@ class MessageOutbox:
             (message_id,),
         )
         await self._db.commit()
-        return cursor.rowcount > 0
+        return count > 0
 
     async def get_pending_message(self, message_id: str) -> tuple[Message, str] | None:
         assert self._db is not None
-        async with self._db.execute(
+        row = await self._db.fetchone(
             "SELECT message_json, channel FROM message_outbox WHERE message_id = ? AND status = 'pending'",
             (message_id,),
-        ) as cursor:
-            row = await cursor.fetchone()
+        )
         if not row:
             return None
         return Message.model_validate_json(row[0]), row[1]
@@ -157,6 +158,6 @@ class MessageOutbox:
     async def purge_failed(self) -> int:
         """Delete all failed outbox entries. Returns number of rows removed."""
         assert self._db is not None
-        cursor = await self._db.execute("DELETE FROM message_outbox WHERE status = 'failed'")
+        count = await self._db.execute("DELETE FROM message_outbox WHERE status = 'failed'")
         await self._db.commit()
-        return cursor.rowcount or 0
+        return count

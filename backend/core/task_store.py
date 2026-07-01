@@ -1,17 +1,18 @@
-"""Task persistence — SQLite store for task lifecycle, context, and queue."""
+"""Task persistence — SQLite or PostgreSQL store for task lifecycle and queue."""
 
 from __future__ import annotations
 
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
-
-import aiosqlite
+from typing import Any
 
 from backend.config import settings
 from backend.constants import MAX_PROCESSED_MESSAGE_IDS
+from backend.core.db.base import Database, create_database
+from backend.core.db.schema import init_schema
 from backend.core.metrics import TASKS_FINISHED
+from backend.core.replica import get_replica_id
 from backend.models.artifact import Artifact
 from backend.models.message import Message
 from backend.models.task import TaskRecord, TaskStatus
@@ -28,97 +29,105 @@ _ACTIVE_STATUSES = (
 _RECOVER_STATUSES = _ACTIVE_STATUSES
 
 _TASK_SELECT = """
-    SELECT id, input, status, plan_json, result, created_at, updated_at, context_json, error, idempotency_key
+    SELECT id, input, status, plan_json, result, created_at, updated_at,
+           context_json, error, idempotency_key, owner_replica
     FROM tasks
 """
 
 
 class TaskStore:
-    def __init__(self, db_path: str | None = None) -> None:
-        self._db_path = db_path or settings.tasks_db_path
-        self._db: aiosqlite.Connection | None = None
+    def __init__(self, db_or_path: Database | str | None = None) -> None:
+        if isinstance(db_or_path, Database):
+            self._db = db_or_path
+            self._db_path: str | None = None
+            self._owns_db = False
+        else:
+            self._db = None
+            self._db_path = db_or_path or settings.tasks_db_path
+            self._owns_db = False
+
+    @property
+    def database(self) -> Database | None:
+        return self._db
 
     async def connect(self) -> None:
-        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._db = await aiosqlite.connect(self._db_path)
-        from backend.core.sqlite_utils import configure_sqlite
-
-        await configure_sqlite(self._db)
-        await self._db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS tasks (
-                id TEXT PRIMARY KEY,
-                input TEXT NOT NULL,
-                status TEXT NOT NULL,
-                plan_json TEXT,
-                context_json TEXT,
-                result TEXT,
-                error TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-            """
-        )
-        await self._db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS task_messages (
-                id TEXT PRIMARY KEY,
-                task_id TEXT NOT NULL,
-                message_json TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        await self._db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS artifacts (
-                id TEXT PRIMARY KEY,
-                task_id TEXT NOT NULL,
-                assignment_id TEXT DEFAULT '',
-                type TEXT NOT NULL,
-                content_json TEXT NOT NULL,
-                metadata_json TEXT,
-                created_by TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        await self._migrate_columns()
-        await self._create_indexes()
-        await self._db.commit()
-
-    async def _migrate_columns(self) -> None:
-        assert self._db is not None
-        async with self._db.execute("PRAGMA table_info(tasks)") as cursor:
-            columns = {row[1] for row in await cursor.fetchall()}
-        if "context_json" not in columns:
-            await self._db.execute("ALTER TABLE tasks ADD COLUMN context_json TEXT")
-        if "error" not in columns:
-            await self._db.execute("ALTER TABLE tasks ADD COLUMN error TEXT")
-        if "idempotency_key" not in columns:
-            await self._db.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT")
-            await self._db.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency ON tasks(idempotency_key) "
-                "WHERE idempotency_key IS NOT NULL"
-            )
-
-    async def _create_indexes(self) -> None:
-        assert self._db is not None
-        await self._db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at)"
-        )
-        await self._db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_task_messages_task_created "
-            "ON task_messages(task_id, created_at)"
-        )
-        await self._db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_artifacts_task_created "
-            "ON artifacts(task_id, created_at)"
-        )
+        if self._db is None:
+            self._db = await create_database(sqlite_path=self._db_path)
+            self._owns_db = True
+        await init_schema(self._db)
 
     async def disconnect(self) -> None:
-        if self._db:
-            await self._db.close()
+        if self._owns_db and self._db:
+            await self._db.disconnect()
+        self._db = None
+        self._owns_db = False
+
+    def _ts(self) -> Any:
+        now = datetime.now(timezone.utc)
+        if self._db and self._db.is_postgres:
+            return now
+        return now.isoformat()
+
+    def _upsert_task_sql(self) -> str:
+        if self._db and self._db.is_postgres:
+            return """
+            INSERT INTO tasks
+            (id, input, status, plan_json, context_json, result, error,
+             idempotency_key, owner_replica, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+                input = EXCLUDED.input,
+                status = EXCLUDED.status,
+                plan_json = EXCLUDED.plan_json,
+                context_json = EXCLUDED.context_json,
+                result = EXCLUDED.result,
+                error = EXCLUDED.error,
+                idempotency_key = EXCLUDED.idempotency_key,
+                owner_replica = EXCLUDED.owner_replica,
+                updated_at = EXCLUDED.updated_at
+            """
+        return """
+            INSERT OR REPLACE INTO tasks
+            (id, input, status, plan_json, context_json, result, error,
+             idempotency_key, owner_replica, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+
+    def _upsert_message_sql(self) -> str:
+        if self._db and self._db.is_postgres:
+            return """
+            INSERT INTO task_messages (id, task_id, message_json, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+                task_id = EXCLUDED.task_id,
+                message_json = EXCLUDED.message_json,
+                created_at = EXCLUDED.created_at
+            """
+        return """
+            INSERT OR REPLACE INTO task_messages (id, task_id, message_json, created_at)
+            VALUES (?, ?, ?, ?)
+            """
+
+    def _upsert_artifact_sql(self) -> str:
+        if self._db and self._db.is_postgres:
+            return """
+            INSERT INTO artifacts
+            (id, task_id, assignment_id, type, content_json, metadata_json, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+                task_id = EXCLUDED.task_id,
+                assignment_id = EXCLUDED.assignment_id,
+                type = EXCLUDED.type,
+                content_json = EXCLUDED.content_json,
+                metadata_json = EXCLUDED.metadata_json,
+                created_by = EXCLUDED.created_by,
+                created_at = EXCLUDED.created_at
+            """
+        return """
+            INSERT OR REPLACE INTO artifacts
+            (id, task_id, assignment_id, type, content_json, metadata_json, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """
 
     async def create(
         self,
@@ -134,38 +143,26 @@ class TaskStore:
         if not key:
             return None
         assert self._db is not None
-        async with self._db.execute(
-            f"""
-            {_TASK_SELECT.strip()}
-            WHERE idempotency_key = ?
-            """,
+        row = await self._db.fetchone(
+            f"{_TASK_SELECT.strip()} WHERE idempotency_key = ?",
             (key,),
-        ) as cursor:
-            row = await cursor.fetchone()
+        )
         return self._row_to_task(row) if row else None
 
     async def get(self, task_id: str) -> TaskRecord | None:
         assert self._db is not None
-        async with self._db.execute(
-            f"""
-            {_TASK_SELECT.strip()}
-            WHERE id = ?
-            """,
+        row = await self._db.fetchone(
+            f"{_TASK_SELECT.strip()} WHERE id = ?",
             (task_id,),
-        ) as cursor:
-            row = await cursor.fetchone()
+        )
         return self._row_to_task(row) if row else None
 
     async def list_tasks(self, limit: int = 20) -> list[TaskRecord]:
         assert self._db is not None
-        async with self._db.execute(
-            f"""
-            {_TASK_SELECT.strip()}
-            ORDER BY created_at DESC LIMIT ?
-            """,
+        rows = await self._db.fetchall(
+            f"{_TASK_SELECT.strip()} ORDER BY created_at DESC LIMIT ?",
             (limit,),
-        ) as cursor:
-            rows = await cursor.fetchall()
+        )
         return [self._row_to_task(row) for row in rows]
 
     async def recover_stale_tasks(self) -> None:
@@ -174,10 +171,10 @@ class TaskStore:
 
         assert self._db is not None
         for status in _RECOVER_STATUSES:
-            async with self._db.execute(
-                "SELECT id FROM tasks WHERE status = ?", (status.value,)
-            ) as cursor:
-                rows = await cursor.fetchall()
+            rows = await self._db.fetchall(
+                "SELECT id FROM tasks WHERE status = ?",
+                (status.value,),
+            )
             for (task_id,) in rows:
                 await recover_plan_assignments(self, task_id)
                 await self.update_status(task_id, TaskStatus.QUEUED)
@@ -186,61 +183,99 @@ class TaskStore:
     async def count_active(self) -> int:
         assert self._db is not None
         placeholders = ",".join("?" for _ in _ACTIVE_STATUSES)
-        async with self._db.execute(
+        row = await self._db.fetchone(
             f"SELECT COUNT(*) FROM tasks WHERE status IN ({placeholders})",
-            [s.value for s in _ACTIVE_STATUSES],
-        ) as cursor:
-            row = await cursor.fetchone()
+            tuple(s.value for s in _ACTIVE_STATUSES),
+        )
         return row[0] if row else 0
 
     async def count_queued(self) -> int:
         assert self._db is not None
-        async with self._db.execute(
-            "SELECT COUNT(*) FROM tasks WHERE status = ?", (TaskStatus.QUEUED.value,)
-        ) as cursor:
-            row = await cursor.fetchone()
+        row = await self._db.fetchone(
+            "SELECT COUNT(*) FROM tasks WHERE status = ?",
+            (TaskStatus.QUEUED.value,),
+        )
         return row[0] if row else 0
 
     async def dequeue(self) -> TaskRecord | None:
         assert self._db is not None
-        async with self._db.execute(
-            f"""
+        replica_id = get_replica_id()
+        now = self._ts()
+        if self._db.is_postgres:
+            sql = f"""
             UPDATE tasks
-            SET status = ?, updated_at = ?
+            SET status = ?, updated_at = ?, owner_replica = ?
+            WHERE id = (
+                SELECT id FROM tasks WHERE status = ?
+                ORDER BY created_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            RETURNING id, input, status, plan_json, result, created_at, updated_at,
+                      context_json, error, idempotency_key, owner_replica
+            """
+        else:
+            sql = f"""
+            UPDATE tasks
+            SET status = ?, updated_at = ?, owner_replica = ?
             WHERE id = (
                 SELECT id FROM tasks WHERE status = ? ORDER BY created_at LIMIT 1
             )
             RETURNING id, input, status, plan_json, result, created_at, updated_at,
-                      context_json, error, idempotency_key
-            """,
+                      context_json, error, idempotency_key, owner_replica
+            """
+        row = await self._db.fetchone(
+            sql,
             (
                 TaskStatus.SUBMITTED.value,
-                datetime.now(timezone.utc).isoformat(),
+                now,
+                replica_id,
                 TaskStatus.QUEUED.value,
             ),
-        ) as cursor:
-            row = await cursor.fetchone()
+        )
         await self._db.commit()
         return self._row_to_task(row) if row else None
+
+    async def claim_for_planning(self, task_id: str, replica_id: str | None = None) -> bool:
+        """Atomically claim a submitted task for planning on this API replica."""
+        assert self._db is not None
+        replica = replica_id or get_replica_id()
+        now = self._ts()
+        sql = """
+            UPDATE tasks SET status = ?, owner_replica = ?, updated_at = ?
+            WHERE id = ? AND status = ?
+            AND (owner_replica IS NULL OR owner_replica = ?)
+            RETURNING id
+            """
+        row = await self._db.fetchone(
+            sql,
+            (
+                TaskStatus.PLANNING.value,
+                replica,
+                now,
+                task_id,
+                TaskStatus.SUBMITTED.value,
+                replica,
+            ),
+        )
+        await self._db.commit()
+        return row is not None
 
     async def update_status(self, task_id: str, status: TaskStatus) -> None:
         assert self._db is not None
         await self._db.execute(
             "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
-            (status.value, datetime.now(timezone.utc).isoformat(), task_id),
+            (status.value, self._ts(), task_id),
         )
         await self._db.commit()
 
     async def save_plan(self, task_id: str, plan: dict) -> None:
         assert self._db is not None
         await self._db.execute(
-            """
-            UPDATE tasks SET plan_json = ?, updated_at = ?
-            WHERE id = ?
-            """,
+            "UPDATE tasks SET plan_json = ?, updated_at = ? WHERE id = ?",
             (
                 json.dumps(plan, ensure_ascii=False) if plan else None,
-                datetime.now(timezone.utc).isoformat(),
+                self._ts(),
                 task_id,
             ),
         )
@@ -252,7 +287,7 @@ class TaskStore:
             "UPDATE tasks SET context_json = ?, updated_at = ? WHERE id = ?",
             (
                 json.dumps(context, ensure_ascii=False) if context else None,
-                datetime.now(timezone.utc).isoformat(),
+                self._ts(),
                 task_id,
             ),
         )
@@ -283,12 +318,7 @@ class TaskStore:
         assert self._db is not None
         await self._db.execute(
             "UPDATE tasks SET result = ?, status = ?, updated_at = ? WHERE id = ?",
-            (
-                result,
-                TaskStatus.COMPLETED.value,
-                datetime.now(timezone.utc).isoformat(),
-                task_id,
-            ),
+            (result, TaskStatus.COMPLETED.value, self._ts(), task_id),
         )
         await self._db.commit()
         if TASKS_FINISHED:
@@ -298,12 +328,7 @@ class TaskStore:
         assert self._db is not None
         await self._db.execute(
             "UPDATE tasks SET error = ?, status = ?, updated_at = ? WHERE id = ?",
-            (
-                error,
-                TaskStatus.FAILED.value,
-                datetime.now(timezone.utc).isoformat(),
-                task_id,
-            ),
+            (error, TaskStatus.FAILED.value, self._ts(), task_id),
         )
         await self._db.commit()
         if TASKS_FINISHED:
@@ -313,42 +338,48 @@ class TaskStore:
         if not message.task_id:
             return
         assert self._db is not None
+        ts = message.timestamp
+        if self._db.is_postgres:
+            ts_val = ts
+        else:
+            ts_val = ts.isoformat()
         await self._db.execute(
-            "INSERT OR REPLACE INTO task_messages (id, task_id, message_json, created_at) VALUES (?, ?, ?, ?)",
-            (message.id, message.task_id, message.model_dump_json(), message.timestamp.isoformat()),
+            self._upsert_message_sql(),
+            (message.id, message.task_id, message.model_dump_json(), ts_val),
         )
         await self._db.commit()
 
     async def get_messages(self, task_id: str) -> list[Message]:
         assert self._db is not None
-        async with self._db.execute(
+        rows = await self._db.fetchall(
             "SELECT message_json FROM task_messages WHERE task_id = ? ORDER BY created_at",
             (task_id,),
-        ) as cursor:
-            rows = await cursor.fetchall()
+        )
         return [Message.model_validate_json(row[0]) for row in rows]
 
     async def find_by_trace(self, trace_id: str, limit: int = 100) -> list[Message]:
         assert self._db is not None
-        async with self._db.execute(
+        if self._db.is_postgres:
+            sql = """
+            SELECT message_json FROM task_messages
+            WHERE message_json::jsonb->>'trace_id' = ?
+            ORDER BY created_at LIMIT ?
             """
+        else:
+            sql = """
             SELECT message_json FROM task_messages
             WHERE json_extract(message_json, '$.trace_id') = ?
             ORDER BY created_at LIMIT ?
-            """,
-            (trace_id, limit),
-        ) as cursor:
-            rows = await cursor.fetchall()
+            """
+        rows = await self._db.fetchall(sql, (trace_id, limit))
         return [Message.model_validate_json(row[0]) for row in rows]
 
     async def save_artifact(self, artifact: Artifact) -> Artifact:
         assert self._db is not None
+        created = artifact.created_at
+        created_val = created if self._db.is_postgres else created.isoformat()
         await self._db.execute(
-            """
-            INSERT OR REPLACE INTO artifacts
-            (id, task_id, assignment_id, type, content_json, metadata_json, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            self._upsert_artifact_sql(),
             (
                 artifact.id,
                 artifact.task_id,
@@ -357,7 +388,7 @@ class TaskStore:
                 json.dumps(artifact.content, ensure_ascii=False),
                 json.dumps(artifact.metadata, ensure_ascii=False),
                 artifact.created_by,
-                artifact.created_at.isoformat(),
+                created_val,
             ),
         )
         await self._db.commit()
@@ -365,36 +396,36 @@ class TaskStore:
 
     async def list_artifacts(self, task_id: str) -> list[Artifact]:
         assert self._db is not None
-        async with self._db.execute(
+        rows = await self._db.fetchall(
             """
             SELECT id, task_id, assignment_id, type, content_json, metadata_json, created_by, created_at
             FROM artifacts WHERE task_id = ? ORDER BY created_at
             """,
             (task_id,),
-        ) as cursor:
-            rows = await cursor.fetchall()
+        )
         return [self._row_to_artifact(row) for row in rows]
 
     async def get_artifact(self, artifact_id: str) -> Artifact | None:
         assert self._db is not None
-        async with self._db.execute(
+        row = await self._db.fetchone(
             """
             SELECT id, task_id, assignment_id, type, content_json, metadata_json, created_by, created_at
             FROM artifacts WHERE id = ?
             """,
             (artifact_id,),
-        ) as cursor:
-            row = await cursor.fetchone()
+        )
         return self._row_to_artifact(row) if row else None
 
     async def _save(self, task: TaskRecord) -> None:
         assert self._db is not None
+        created = task.created_at
+        updated = task.updated_at
+        if self._db.is_postgres:
+            created_val, updated_val = created, updated
+        else:
+            created_val, updated_val = created.isoformat(), updated.isoformat()
         await self._db.execute(
-            """
-            INSERT OR REPLACE INTO tasks
-            (id, input, status, plan_json, context_json, result, error, idempotency_key, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            self._upsert_task_sql(),
             (
                 task.id,
                 task.input,
@@ -404,11 +435,18 @@ class TaskStore:
                 task.result,
                 task.error,
                 task.idempotency_key,
-                task.created_at.isoformat(),
-                task.updated_at.isoformat(),
+                task.owner_replica,
+                created_val,
+                updated_val,
             ),
         )
         await self._db.commit()
+
+    @staticmethod
+    def _parse_dt(value: Any) -> datetime:
+        if isinstance(value, datetime):
+            return value
+        return datetime.fromisoformat(str(value))
 
     @staticmethod
     def _row_to_task(row: tuple) -> TaskRecord:
@@ -418,11 +456,12 @@ class TaskStore:
             status=TaskStatus(row[2]),
             plan=json.loads(row[3]) if row[3] else None,
             result=row[4],
-            created_at=datetime.fromisoformat(row[5]),
-            updated_at=datetime.fromisoformat(row[6]),
+            created_at=TaskStore._parse_dt(row[5]),
+            updated_at=TaskStore._parse_dt(row[6]),
             context=json.loads(row[7]) if row[7] else {},
             error=row[8],
             idempotency_key=row[9] if len(row) > 9 else None,
+            owner_replica=row[10] if len(row) > 10 else None,
         )
 
     @staticmethod
@@ -435,5 +474,5 @@ class TaskStore:
             content=json.loads(row[4]),
             metadata=json.loads(row[5]) if row[5] else {},
             created_by=row[6],
-            created_at=datetime.fromisoformat(row[7]),
+            created_at=TaskStore._parse_dt(row[7]),
         )

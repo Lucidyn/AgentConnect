@@ -1,6 +1,6 @@
 # Agent Connect
 
-**Multi-Agent Collaboration Platform** — 多智能体协作平台 v0.8
+**Multi-Agent Collaboration Platform** — 多智能体协作平台 v1.0
 
 可演示、可扩展的单节点多 Agent 编排系统。Agent 通过 Message Bus 异步通信；支持 DAG 计划、模板流水线、可视化编排、黑板协作与协商协议。
 
@@ -24,7 +24,7 @@
                 Final Result
 ```
 
-> **部署模型**：默认单进程。设置 `DISTRIBUTED_WORKERS=true` 后，Planner 在 API 进程，Worker Agent 在独立进程（Redis Stream）。见 [`docs/phase3-architecture.md`](docs/phase3-architecture.md)。
+> **部署模型**：默认单进程 + SQLite。`DISTRIBUTED_WORKERS=true` 时 Worker 独立进程（Redis Stream）。`DATABASE_URL` 启用 Postgres 后，可运行多个 API 副本（nginx 负载均衡）。见 [`docs/phase3-architecture.md`](docs/phase3-architecture.md)。
 
 ## 快速开始
 
@@ -43,7 +43,7 @@ Docker：
 
 ```bash
 docker compose up --build
-# 数据持久化在 app_data volume（data/tasks.db 等）
+# nginx :8000 → api + api-replica-2，Postgres 共享任务库，Redis + workers
 ```
 
 ## 内置 Agent
@@ -101,14 +101,14 @@ curl -X POST http://localhost:8000/tasks \
 
 协商协议：开放问题 → 上游 Agent 答复 → 写入黑板（见 Phase 3 文档）。
 
-Docker Compose（分布式 Worker）：
+Docker Compose（生产式栈：Postgres + 双 API 副本 + nginx + 分布式 Worker）：
 
 ```bash
-DISTRIBUTED_WORKERS=true docker compose up --build
-# 启动 api + worker-research + worker-coder + worker-reviewer
+docker compose up --build
+# nginx :8000 → api + api-replica-2，postgres 共享任务库，worker-research/coder/reviewer
 ```
 
-单 Worker 本地调试：
+单 Worker 本地调试（需自行启动 Redis）：
 
 ```bash
 # 终端 1 — API
@@ -141,7 +141,10 @@ ASSIGNMENT_CONTEXT_MAX_CHARS=2000
 # 协商
 NEGOTIATION_MAX_ROUNDS=2
 
-# Phase 3 worker 脚手架
+# Phase 3 — 分布式 Worker + 水平扩展
+DISTRIBUTED_WORKERS=false
+DATABASE_URL=              # postgresql://... 启用共享 Postgres（多副本）
+API_REPLICA_ID=              # 每个 API 实例唯一 ID
 WORKER_MODE=false
 ```
 
@@ -190,9 +193,10 @@ agent_connect/
 ├── backend/
 │   ├── api/              # HTTP 路由
 │   ├── agents/           # 内置 Agent（8 个）
-│   ├── core/             # Bus、编排、LLM、模板、协商
-│   ├── worker/           # Phase 3 worker 入口（脚手架）
+│   ├── core/             # Bus、编排、LLM、DB、Worker
+│   ├── worker/           # 分布式 Worker 进程入口
 │   └── static/           # Web UI + compose.js
+├── deploy/               # nginx 负载均衡配置
 ├── plugins/
 │   ├── manifest.yaml
 │   └── plan_templates.yaml
@@ -210,8 +214,14 @@ agent_connect/
 | Phase 1 | Message Bus + Agent + Registry | ✅ |
 | Phase 2 | DAG 并行、审批、Prometheus、Outbox | ✅ |
 | **v0.8** | 模板、DAG 编排 UI、黑板、协商协议、API 加固 | ✅ |
-| **v0.9** | Phase 3 分布式 Worker（Redis Stream） | ✅ 当前 |
-| Phase 3e | 多 API 副本 + Postgres 任务库 | 📋 规划中 |
+| **v0.9** | Phase 3 分布式 Worker（Redis Stream） | ✅ |
+| **v1.0** | 多 API 副本 + Postgres 共享任务库 | ✅ 当前 |
+
+### v1.0 新增（Phase 3e）
+
+- **Postgres 任务库**：`DATABASE_URL=postgresql://...` 替代 SQLite（任务、消息、outbox 同库）
+- **水平扩展**：`API_REPLICA_ID` + `claim_for_planning` / `dequeue SKIP LOCKED` 防重复调度
+- **Docker Compose**：`postgres` + `api` + `api-replica-2` + `nginx` 负载均衡
 
 ### v0.9 新增
 
@@ -234,20 +244,21 @@ agent_connect/
 ## 技术栈
 
 - **LLM**: OpenAI / Anthropic / 兼容 API（规则 fallback）
-- **通信**: Redis Pub/Sub 或 In-Memory + SQLite Outbox
+- **通信**: Redis Pub/Sub 或 In-Memory + SQLite/Postgres Outbox
 - **API**: FastAPI + WebSocket + SSE
-- **存储**: SQLite（WAL）、Qdrant（共享记忆，可选）
-- **部署**: Docker Compose（`app_data` 持久化）
+- **存储**: SQLite（本地）或 Postgres（多副本）；Qdrant（共享记忆，可选）
+- **部署**: Docker Compose（Postgres + nginx + workers）
 
 ## 测试
 
 ```bash
 pytest tests/ -q
 pytest tests/ -q --cov=backend --cov-report=term-missing
-pytest tests/ -q -m redis    # 需本地 Redis
+pytest tests/ -q -m redis       # 需本地 Redis
+pytest tests/ -q -m postgres    # 需 DATABASE_URL 指向 Postgres
 ```
 
-GitHub Actions：pytest + coverage（≥55%）+ Redis 集成 + Docker build/smoke。
+GitHub Actions：pytest + coverage（≥55%）+ Redis/Postgres 集成 + Docker build/smoke。
 
 ## 插件接入
 

@@ -26,6 +26,9 @@ class Settings(BaseSettings):
 
     registry_db_path: str = "data/registry.db"
     tasks_db_path: str = "data/tasks.db"
+    database_url: str = ""
+    database_pool_size: int = 10
+    api_replica_id: str = ""
 
     enabled_agents: str = ""
     enabled_tools: str = ""

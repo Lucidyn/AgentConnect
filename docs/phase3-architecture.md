@@ -64,7 +64,7 @@ python -m backend.worker.run
 
 ```bash
 docker compose up --build
-# api + worker-research + worker-coder + worker-reviewer
+# nginx → api + api-replica-2 + workers + postgres + redis
 ```
 
 ### Local dev without Redis
@@ -78,6 +78,51 @@ Tests use a shared in-memory stream (`USE_REDIS=false` + `DISTRIBUTED_WORKERS=tr
 - `WorkerTaskEnvelope` — Planner → worker
 - `WorkerResultEnvelope` — worker → Planner
 
+## 3. Horizontal API + shared Postgres (v1.0) ✅
+
+### Architecture
+
+```
+                    ┌─────────────┐
+   HTTP :8000 ─────►│ nginx LB    │
+                    └──────┬──────┘
+              ┌────────────┴────────────┐
+              ▼                         ▼
+       ┌─────────────┐           ┌─────────────┐
+       │ API replica │           │ API replica │
+       │  (Planner)  │           │  (Planner)  │
+       └──────┬──────┘           └──────┬──────┘
+              │                         │
+              └────────────┬────────────┘
+                           ▼
+                  ┌─────────────────┐
+                  │   PostgreSQL    │
+                  │ tasks + outbox  │
+                  └─────────────────┘
+```
+
+### Components
+
+| Module | Role |
+|--------|------|
+| `backend/core/db/base.py` | SQLite / Postgres async adapters |
+| `backend/core/db/schema.py` | Shared DDL + migrations |
+| `backend/core/replica.py` | `API_REPLICA_ID` identity |
+| `backend/core/task_store.py` | `dequeue` (`SKIP LOCKED`), `claim_for_planning` |
+
+### Enable multi-replica mode
+
+```bash
+DATABASE_URL=postgresql://agent:agent@localhost:5432/agentconnect
+API_REPLICA_ID=api-1          # unique per replica
+USE_REDIS=true                  # shared message bus
+DISTRIBUTED_WORKERS=true        # optional remote agents
+```
+
+- **Queue**: `dequeue()` uses `FOR UPDATE SKIP LOCKED` on Postgres so only one replica claims each queued task.
+- **Planner**: `claim_for_planning()` prevents duplicate plan generation when Redis delivers the same User message to multiple replicas.
+- **Outbox**: message reliability uses the same Postgres database as tasks.
+
 ### Rollout status
 
 | Step | Status |
@@ -86,11 +131,14 @@ Tests use a shared in-memory stream (`USE_REDIS=false` + `DISTRIBUTED_WORKERS=tr
 | 3b Worker CLI scaffold | ✅ |
 | 3c Planner publishes to stream | ✅ |
 | 3d Workers execute + publish results | ✅ |
-| 3e Horizontal API + shared DB | 📋 Postgres migration TBD |
+| 3e Horizontal API + shared Postgres | ✅ |
 
 ### Environment
 
 ```bash
+DATABASE_URL=
+DATABASE_POOL_SIZE=10
+API_REPLICA_ID=
 DISTRIBUTED_WORKERS=false
 WORKER_MODE=false
 WORKER_AGENT_NAME=
@@ -99,4 +147,12 @@ WORKER_STREAM_KEY=ac:assignments
 WORKER_RESULT_STREAM_KEY=ac:results
 WORKER_CONSUMER_GROUP=ac-workers
 WORKER_POLL_INTERVAL=2
+```
+
+### Postgres integration tests
+
+CI runs `pytest -m postgres` with a Postgres service. Locally:
+
+```bash
+DATABASE_URL=postgresql://agent:agent@localhost:5432/agentconnect pytest -m postgres
 ```

@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, Response
 
 from backend.config import settings
 from backend.core.metrics import metrics_response
+from backend.core.replica import get_replica_id
 from backend.core.runtime import list_runtimes
 from backend.platform import platform
 
@@ -52,4 +53,10 @@ async def health():
         "distributed_workers": settings.distributed_workers,
         "remote_agents": sorted(getattr(platform, "_remote_agents", [])),
         "worker_mode": settings.worker_mode,
+        "replica_id": get_replica_id(),
+        "database": (
+            "postgres"
+            if getattr(platform, "_database", None) and platform._database.is_postgres
+            else "sqlite"
+        ),
     }

@@ -9,16 +9,7 @@ from typing import Any
 
 import yaml
 
-from backend.agents import (
-    AnalystAgent,
-    CoderAgent,
-    PlannerAgent,
-    ResearchAgent,
-    ReviewerAgent,
-    TestRunnerAgent,
-    TranslatorAgent,
-    WriterAgent,
-)
+from backend.agents.registry import BUILTIN_AGENTS
 from backend.config import settings
 from backend.core.agent import Agent
 from backend.tools.arxiv import ArxivTool
@@ -27,17 +18,6 @@ from backend.tools.github import GitHubTool
 from backend.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
-
-_BUILTIN_AGENTS: dict[str, type[Agent]] = {
-    "planner": PlannerAgent,
-    "research": ResearchAgent,
-    "coder": CoderAgent,
-    "writer": WriterAgent,
-    "analyst": AnalystAgent,
-    "translator": TranslatorAgent,
-    "test_runner": TestRunnerAgent,
-    "reviewer": ReviewerAgent,
-}
 
 _BUILTIN_TOOLS: dict[str, type[Tool]] = {
     "arxiv": ArxivTool,
@@ -112,17 +92,12 @@ def load_agent_plugins(enabled: str = "") -> tuple[list[type[Agent]], dict[str, 
         if classes:
             return classes, configs
 
-    registry = _BUILTIN_AGENTS
+    registry = BUILTIN_AGENTS
     if enabled_names:
         keys = [n for n in enabled_names if n in registry]
     else:
         keys = list(registry.keys())
     return [registry[n] for n in keys], configs
-
-
-def load_agent_classes(enabled: str = "") -> list[type[Agent]]:
-    classes, _ = load_agent_plugins(enabled)
-    return classes
 
 
 def load_tool_registry(enabled: str = "") -> ToolRegistry:

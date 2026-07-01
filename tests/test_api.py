@@ -10,6 +10,8 @@ def test_health(api_client):
     assert data["status"] == "ok"
     assert data["agents"] >= 4
     assert "agent_runtimes" in data
+    assert "replica_id" in data
+    assert data["database"] == "sqlite"
 
 
 def test_list_agents(api_client):

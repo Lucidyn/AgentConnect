@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from backend.core.db.base import SQLiteDatabase
 from backend.core.sqlite_utils import configure_sqlite
 from backend.core.task_store import TaskStore
 
@@ -13,8 +14,10 @@ async def test_task_store_uses_wal_mode(isolated_paths):
     store = TaskStore(isolated_paths["tasks"])
     await store.connect()
     try:
-        assert store._db is not None
-        async with store._db.execute("PRAGMA journal_mode") as cursor:
+        assert isinstance(store.database, SQLiteDatabase)
+        conn = store.database._db
+        assert conn is not None
+        async with conn.execute("PRAGMA journal_mode") as cursor:
             row = await cursor.fetchone()
         assert row is not None
         assert row[0].lower() == "wal"

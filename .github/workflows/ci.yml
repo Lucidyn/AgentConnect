@@ -18,6 +18,19 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 5
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent
+          POSTGRES_DB: agentconnect
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent -d agentconnect"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
 
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +55,11 @@ jobs:
         env:
           REDIS_URL: redis://localhost:6379/0
         run: pytest tests/ -q -m redis
+
+      - name: Run Postgres integration tests
+        env:
+          DATABASE_URL: postgresql://agent:agent@localhost:5432/agentconnect
+        run: pytest tests/ -q -m postgres
 
   docker:
     runs-on: ubuntu-latest

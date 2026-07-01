@@ -2,27 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from backend.models.task import TaskStatus
 from backend.platform import Platform
-from backend.tools.base import ToolResult
-from backend.tools.registry import ToolRegistry
-
-
-async def _mock_run_for_task(self, task: str) -> list[ToolResult]:
-    return [ToolResult("mock", True, "mock research")]
+from tests.helpers import wait_for_task_status
 
 
 @pytest.mark.asyncio
-async def test_custom_plan_parallel_fork_completes(isolated_paths, monkeypatch):
+async def test_custom_plan_parallel_fork_completes(isolated_paths, mock_tools, monkeypatch):
     monkeypatch.setattr("backend.config.settings.max_concurrent_tasks", 1)
     monkeypatch.setattr("backend.config.settings.fast_skip_planner_llm", True)
     monkeypatch.setattr("backend.config.settings.fast_mode", True)
     monkeypatch.setattr("backend.config.settings.fast_skip_test_runner", True)
-    monkeypatch.setattr(ToolRegistry, "run_for_task", _mock_run_for_task)
 
     custom_plan = {
         "summary": "并行测试：{task}",
@@ -49,16 +41,9 @@ async def test_custom_plan_parallel_fork_completes(isolated_paths, monkeypatch):
         )
         assert message is not None
 
-        final = None
-        for _ in range(150):
-            final = await platform.task_store.get(task.id)
-            if final and final.status in (
-                TaskStatus.COMPLETED,
-                TaskStatus.FAILED,
-                TaskStatus.WAITING_APPROVAL,
-            ):
-                break
-            await asyncio.sleep(0.1)
+        final = await wait_for_task_status(
+            platform.task_store, task.id, TaskStatus.COMPLETED, timeout=15.0
+        )
 
         assert final is not None
         assert final.status == TaskStatus.COMPLETED, (

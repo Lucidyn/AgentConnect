@@ -26,5 +26,6 @@ class TaskRecord(BaseModel):
     result: str | None = None
     error: str | None = None
     idempotency_key: str | None = None
+    owner_replica: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

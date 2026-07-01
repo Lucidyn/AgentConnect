@@ -7,10 +7,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tests.helpers import mock_run_for_task
+
 
 def pytest_configure(config):
     config.addinivalue_line(
         "markers", "redis: integration tests requiring a running Redis instance"
+    )
+    config.addinivalue_line(
+        "markers", "postgres: integration tests requiring PostgreSQL (DATABASE_URL)"
     )
 
 
@@ -30,6 +35,7 @@ def isolated_paths(tmp_path, monkeypatch):
     registry_db = str(tmp_path / "registry.db")
     monkeypatch.setattr("backend.config.settings.tasks_db_path", tasks_db)
     monkeypatch.setattr("backend.config.settings.registry_db_path", registry_db)
+    monkeypatch.setattr("backend.config.settings.database_url", "")
     monkeypatch.setattr("backend.config.settings.use_redis", False)
     monkeypatch.setattr("backend.config.settings.use_qdrant", False)
     monkeypatch.setattr("backend.config.settings.message_reliability", True)
@@ -45,6 +51,14 @@ def patch_settings(monkeypatch):
             monkeypatch.setattr(f"backend.config.settings.{key}", value)
 
     return _patch
+
+
+@pytest.fixture
+def mock_tools(monkeypatch):
+    """Patch ToolRegistry.run_for_task with a fast mock (no external APIs)."""
+    from backend.tools.registry import ToolRegistry
+
+    monkeypatch.setattr(ToolRegistry, "run_for_task", mock_run_for_task)
 
 
 @pytest.fixture

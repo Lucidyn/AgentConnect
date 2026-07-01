@@ -5,18 +5,12 @@ import pytest
 from backend.core.profiling import PipelineProfiler
 from backend.models.task import TaskStatus
 from backend.platform import Platform
-from backend.tools.base import ToolResult
-from backend.tools.registry import ToolRegistry
-
-
-async def _mock_run_for_task(self, task: str) -> list[ToolResult]:
-    return [ToolResult("mock", True, f"mock research for {task[:40]}")]
 
 
 @pytest.mark.asyncio
-async def test_pipeline_profiler_collects_events(isolated_paths, monkeypatch):
+async def test_pipeline_profiler_collects_events(isolated_paths, mock_tools, monkeypatch):
+
     monkeypatch.setattr("backend.config.settings.max_concurrent_tasks", 1)
-    monkeypatch.setattr(ToolRegistry, "run_for_task", _mock_run_for_task)
 
     profiler = PipelineProfiler()
     platform = Platform()

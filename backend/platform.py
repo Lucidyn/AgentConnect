@@ -12,7 +12,10 @@ from backend.constants import PLANNER
 from backend.core.agent import Agent
 from backend.core.llm import LLMClient
 from backend.core.message_bus import InMemoryMessageBus, MessageBus, ReliableMessageBus, create_message_bus
+from backend.core.db import create_database
+from backend.core.db.schema import init_schema
 from backend.core.message_outbox import MessageOutbox
+from backend.core.replica import get_replica_id
 from backend.core.metrics import (
     MESSAGES_SENT,
     OUTBOX_FAILED,
@@ -59,6 +62,7 @@ class Platform:
         self._worker_hub = None
         self._remote_agents: set[str] = set()
         self._result_consumer = default_consumer_name()
+        self._database = None
 
     @property
     def agent_runtimes(self) -> dict[str, str]:
@@ -69,15 +73,15 @@ class Platform:
             return
 
         # Re-read paths from settings on each start (supports test isolation).
-        self.task_store = TaskStore()
-        self.message_outbox = MessageOutbox()
+        self._database = await create_database()
+        await init_schema(self._database)
+        self.task_store = TaskStore(self._database)
+        self.message_outbox = MessageOutbox(self._database)
         self.registry = AgentRegistry()
         self.agents.clear()
         self._agent_runtimes.clear()
 
         await self.registry.connect()
-        await self.task_store.connect()
-        await self.message_outbox.connect()
         if settings.clear_failed_outbox:
             cleared = await self.message_outbox.purge_failed()
             if cleared:
@@ -137,10 +141,12 @@ class Platform:
             await runtime.mount(agent)
 
         logger.info(
-            "Platform started with %d agents (runtimes: %s, distributed=%s)",
+            "Platform started with %d agents (runtimes: %s, distributed=%s, replica=%s, db=%s)",
             len(self.agents),
             self._agent_runtimes,
             settings.distributed_workers,
+            get_replica_id(),
+            "postgres" if self._database and self._database.is_postgres else "sqlite",
         )
         self._retry_task = asyncio.create_task(self._retry_loop())
         if settings.distributed_workers and self._worker_hub:
@@ -263,6 +269,9 @@ class Platform:
         await self.registry.disconnect()
         if self.message_outbox:
             await self.message_outbox.disconnect()
+        if self._database:
+            await self._database.disconnect()
+            self._database = None
         if self._worker_hub:
             await self._worker_hub.disconnect()
             self._worker_hub = None

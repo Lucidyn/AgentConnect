@@ -8,6 +8,7 @@ import re
 from uuid import uuid4
 
 from backend.config import settings
+from backend.core.replica import get_replica_id
 from backend.core.agent import Agent
 from backend.core.fallback_plan import FallbackPlanBuilder
 from backend.core.plan_orchestrator import PlanOrchestrator
@@ -128,7 +129,14 @@ class PlannerAgent(Agent):
 
     async def _start_plan(self, user_task: str) -> str:
         if self.task_store:
-            await self.task_store.update_status(self._current_task_id, TaskStatus.PLANNING)
+            claimed = await self.task_store.claim_for_planning(
+                self._current_task_id, get_replica_id()
+            )
+            if not claimed:
+                task = await self.task_store.get(self._current_task_id)
+                if task and task.status in (TaskStatus.PLANNING, TaskStatus.RUNNING):
+                    return None  # type: ignore[return-value]
+                return "任务已由其他 API 副本处理。"
 
         plan = await self._build_plan(user_task)
         ctx = await self._load_ctx()

@@ -1,23 +1,15 @@
 """End-to-end pipeline test with mocked external tools."""
 
-import asyncio
-
 import pytest
 
 from backend.models.task import TaskStatus
 from backend.platform import Platform
-from backend.tools.base import ToolResult
-from backend.tools.registry import ToolRegistry
-
-
-async def _mock_run_for_task(self, task: str) -> list[ToolResult]:
-    return [ToolResult("mock", True, f"mock research for {task[:40]}")]
+from tests.helpers import wait_for_task_status
 
 
 @pytest.mark.asyncio
-async def test_full_pipeline_completes(isolated_paths, monkeypatch):
+async def test_full_pipeline_completes(isolated_paths, mock_tools, monkeypatch):
     monkeypatch.setattr("backend.config.settings.max_concurrent_tasks", 1)
-    monkeypatch.setattr(ToolRegistry, "run_for_task", _mock_run_for_task)
 
     platform = Platform()
     await platform.start()
@@ -25,12 +17,9 @@ async def test_full_pipeline_completes(isolated_paths, monkeypatch):
         task, message = await platform.submit_task("build a tiny health API")
         assert message is not None
 
-        final = None
-        for _ in range(80):
-            final = await platform.task_store.get(task.id)
-            if final and final.status == TaskStatus.COMPLETED:
-                break
-            await asyncio.sleep(0.1)
+        final = await wait_for_task_status(
+            platform.task_store, task.id, TaskStatus.COMPLETED, timeout=12.0
+        )
 
         assert final is not None
         assert final.status == TaskStatus.COMPLETED

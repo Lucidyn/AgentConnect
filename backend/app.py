@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.routes import api_router
+from backend.constants import VERSION
 from backend.platform import platform
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -29,7 +30,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Agent Connect",
     description="Multi-Agent Collaboration Platform",
-    version="0.9.0",
+    version=VERSION,
     lifespan=lifespan,
 )
 
