@@ -19,14 +19,14 @@ from backend.models.task import TaskRecord, TaskStatus
 
 logger = logging.getLogger(__name__)
 
-_ACTIVE_STATUSES = (
+# Occupies a concurrent execution slot (waiting_approval does not).
+_RUNNING_STATUSES = (
     TaskStatus.SUBMITTED,
     TaskStatus.PLANNING,
     TaskStatus.RUNNING,
-    TaskStatus.WAITING_APPROVAL,
 )
 
-_RECOVER_STATUSES = _ACTIVE_STATUSES
+_RECOVER_STATUSES = _RUNNING_STATUSES + (TaskStatus.WAITING_APPROVAL,)
 
 _TASK_SELECT = """
     SELECT id, input, status, plan_json, result, created_at, updated_at,
@@ -181,13 +181,64 @@ class TaskStore:
                 logger.info("Recovered stale task %s → queued", task_id)
 
     async def count_active(self) -> int:
+        """Tasks occupying a concurrent execution slot."""
         assert self._db is not None
-        placeholders = ",".join("?" for _ in _ACTIVE_STATUSES)
+        placeholders = ",".join("?" for _ in _RUNNING_STATUSES)
         row = await self._db.fetchone(
             f"SELECT COUNT(*) FROM tasks WHERE status IN ({placeholders})",
-            tuple(s.value for s in _ACTIVE_STATUSES),
+            tuple(s.value for s in _RUNNING_STATUSES),
         )
         return row[0] if row else 0
+
+    async def count_waiting_approval(self) -> int:
+        assert self._db is not None
+        row = await self._db.fetchone(
+            "SELECT COUNT(*) FROM tasks WHERE status = ?",
+            (TaskStatus.WAITING_APPROVAL.value,),
+        )
+        return row[0] if row else 0
+
+    async def get_queue_info(self, task_id: str) -> dict[str, int]:
+        """Queue position and rough wait estimate for a queued task."""
+        assert self._db is not None
+        task = await self.get(task_id)
+        if not task or task.status != TaskStatus.QUEUED:
+            return {
+                "queue_position": 0,
+                "queued_ahead": 0,
+                "running_count": await self.count_active(),
+                "estimated_wait_seconds": 0,
+            }
+
+        rows = await self._db.fetchall(
+            "SELECT id FROM tasks WHERE status = ? ORDER BY created_at ASC",
+            (TaskStatus.QUEUED.value,),
+        )
+        ids = [row[0] for row in rows]
+        try:
+            position = ids.index(task_id) + 1
+        except ValueError:
+            position = 0
+
+        running = await self.count_active()
+        max_c = max(1, settings.max_concurrent_tasks)
+        avg = max(30, settings.queue_avg_task_seconds)
+        ahead = max(0, position - 1)
+        slots_free = max(0, max_c - running)
+
+        if position <= slots_free:
+            estimated = 0
+        else:
+            need_to_wait = position - slots_free
+            waves = (need_to_wait + max_c - 1) // max_c
+            estimated = waves * avg
+
+        return {
+            "queue_position": position,
+            "queued_ahead": ahead,
+            "running_count": running,
+            "estimated_wait_seconds": estimated,
+        }
 
     async def count_queued(self) -> int:
         assert self._db is not None

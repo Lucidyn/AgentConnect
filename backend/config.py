@@ -49,11 +49,16 @@ class Settings(BaseSettings):
     fast_skip_planner_llm: bool = False
     fast_skip_research: bool = True
     fast_skip_test_runner: bool = True
-    assignment_context_max_chars: int = 2000
+    assignment_context_max_chars: int = 4000
 
-    llm_max_tokens_default: int = 1024
+    arxiv_timeout_seconds: float = 6.0
+    queue_avg_task_seconds: int = 90
+
+    llm_max_tokens_default: int = 2048
     llm_max_tokens_planner: int = 512
-    llm_max_tokens_research: int = 400
+    llm_max_tokens_research: int = 1200
+    llm_max_tokens_writer: int = 2000
+    llm_max_tokens_analyst: int = 1200
     llm_max_tokens_coder: int = 800
     llm_max_tokens_reviewer: int = 300
     llm_temperature_default: float = 0.7

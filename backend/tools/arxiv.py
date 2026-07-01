@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 
 import httpx
 
+from backend.config import settings
 from backend.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -20,11 +21,12 @@ class ArxivTool(Tool):
     description = "Search academic papers on Arxiv"
 
     async def run(self, query: str) -> ToolResult:
+        timeout = max(2.0, settings.arxiv_timeout_seconds)
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.get(
                     "https://export.arxiv.org/api/query",
-                    params={"search_query": f"all:{query}", "max_results": 5},
+                    params={"search_query": f"all:{query}", "max_results": 3},
                     follow_redirects=True,
                 )
                 response.raise_for_status()
@@ -41,9 +43,20 @@ class ArxivTool(Tool):
                     f"   Summary: {paper['summary'][:200]}..."
                 )
             return ToolResult(self.name, True, "\n".join(lines))
+        except httpx.TimeoutException:
+            logger.warning("Arxiv tool timed out after %ss", timeout)
+            return ToolResult(
+                self.name,
+                True,
+                f"【Arxiv】检索超时（{timeout:.0f}s），已跳过论文搜索，请依据 GitHub 与模型知识继续。",
+            )
         except Exception as exc:
             logger.warning("Arxiv tool failed: %s", exc)
-            return ToolResult(self.name, False, f"Arxiv search failed: {exc}")
+            return ToolResult(
+                self.name,
+                True,
+                f"【Arxiv】暂不可用（{exc}），已跳过论文搜索。",
+            )
 
     def _parse_feed(self, xml_text: str) -> list[dict[str, str]]:
         root = ET.fromstring(xml_text)

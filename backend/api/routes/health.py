@@ -33,7 +33,9 @@ async def index():
 
 @router.get("/health")
 async def health():
-    active = await platform.task_store.count_active()
+    running = await platform.task_store.count_active()
+    queued = await platform.task_store.count_queued()
+    waiting = await platform.task_store.count_waiting_approval()
     outbox_stats = await platform.message_outbox.stats()
     return {
         "status": "ok",
@@ -43,7 +45,10 @@ async def health():
         "shared_memory": type(platform.shared_memory).__name__ if platform.shared_memory else None,
         "tools": platform.tools.list_tools(),
         "queue": {
-            "active": active,
+            "running": running,
+            "queued": queued,
+            "waiting_approval": waiting,
+            "active": running,
             "max_concurrent": settings.max_concurrent_tasks,
         },
         "message_outbox": outbox_stats,

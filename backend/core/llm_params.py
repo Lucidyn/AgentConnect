@@ -21,11 +21,15 @@ def llm_params_for_role(role: str) -> dict[str, int | float]:
             "temperature": settings.llm_temperature_default,
         },
         "writer": {
-            "max_tokens": settings.llm_max_tokens_coder,
+            "max_tokens": settings.llm_max_tokens_writer,
             "temperature": settings.llm_temperature_default,
         },
         "analyst": {
-            "max_tokens": settings.llm_max_tokens_research,
+            "max_tokens": settings.llm_max_tokens_analyst,
+            "temperature": settings.llm_temperature_default,
+        },
+        "translator": {
+            "max_tokens": settings.llm_max_tokens_default,
             "temperature": settings.llm_temperature_default,
         },
         "reviewer": {

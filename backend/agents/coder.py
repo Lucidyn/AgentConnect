@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import re
+
 from backend.constants import PLANNER
 from backend.core.agent import Agent
 from backend.models.message import Message, MessageType
 
 SYSTEM_PROMPT = """你是 Coder Agent。只输出：
-1. 核心 Python 代码块
+1. 核心 Python 代码块（FastAPI 服务必须包含 GET /health 健康检查端点）
 2. 一行运行方式
 不要长篇解释。"""
+
+_HEALTH_SNIPPET = (
+    "\n\n@app.get('/health')\ndef health():\n"
+    "    return {'status': 'ok'}\n"
+)
 
 
 class CoderAgent(Agent):
@@ -39,6 +46,7 @@ class CoderAgent(Agent):
             fallback,
             role=self.role,
         )
+        result = self._ensure_health_endpoint(result)
 
         await self.shared_memory.store(
             content=result,
@@ -54,6 +62,22 @@ class CoderAgent(Agent):
 
         return result
 
+    @staticmethod
+    def _ensure_health_endpoint(code: str) -> str:
+        lower = code.lower()
+        if "fastapi" not in lower:
+            return code
+        if "/health" in lower or "health()" in lower:
+            return code
+        if "```" in code:
+            return re.sub(
+                r"(```(?:python)?\n)([\s\S]*?)(```)",
+                lambda m: m.group(1) + m.group(2).rstrip() + _HEALTH_SNIPPET + m.group(3),
+                code,
+                count=1,
+            )
+        return code.rstrip() + _HEALTH_SNIPPET
+
     def _mock_code(self, task: str) -> str:
         task_lower = task.lower()
         if "ocr" in task_lower or "paddle" in task_lower:
@@ -63,6 +87,8 @@ class CoderAgent(Agent):
                 "```python\nfrom fastapi import FastAPI, UploadFile\n"
                 "from ultralytics import YOLO\n\n"
                 'app = FastAPI()\nmodel = YOLO("yolov11n.pt")\n\n'
+                "@app.get('/health')\ndef health():\n"
+                "    return {'status': 'ok'}\n\n"
                 "@app.post('/detect')\nasync def detect(file: UploadFile):\n"
                 "    return {'detections': model(await file.read())[0].tojson()}\n```"
             )
@@ -70,10 +96,7 @@ class CoderAgent(Agent):
             f"```python\n# {task[:60]}\nfrom fastapi import FastAPI\n\n"
             "app = FastAPI()\n\n"
             "@app.get('/health')\ndef health():\n"
-            "    try:\n"
-            "        return {'status': 'ok'}\n"
-            "    except Exception as e:\n"
-            "        return {'status': 'error', 'detail': str(e)}\n```"
+            "    return {'status': 'ok'}\n```"
         )
 
     def _fixed_code(self) -> str:
@@ -83,6 +106,10 @@ from paddleocr import PaddleOCR
 
 app = FastAPI(title="PaddleOCR Service")
 ocr = PaddleOCR(use_angle_cls=True, lang="ch")
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 @app.post("/ocr")
 async def recognize(file: UploadFile):

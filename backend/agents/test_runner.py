@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from backend.constants import TEST_RUNNER
 from backend.core.agent import Agent
 from backend.models.message import Message
@@ -31,8 +33,20 @@ class TestRunnerAgent(Agent):
     @staticmethod
     def _mock_test(content: str) -> str:
         lower = content.lower()
-        if "fastapi" in lower and "/health" not in lower:
-            return "FAILED: FastAPI service should expose a health endpoint."
-        if "uploadfile" in lower and "content_type" not in lower:
-            return "FAILED: UploadFile handling should validate content_type."
+        if "fastapi" in lower:
+            has_health = (
+                "/health" in lower
+                or bool(re.search(r"@app\.(get|route)\s*\(\s*['\"]/health", content, re.I))
+                or "def health" in lower
+            )
+            if not has_health:
+                return "FAILED: FastAPI service should expose a GET /health endpoint."
+        if "uploadfile" in lower:
+            has_validation = (
+                "content_type" in lower
+                or "httpexception" in lower
+                or "validate" in lower
+            )
+            if not has_validation:
+                return "FAILED: UploadFile handling should validate content_type or raise HTTPException."
         return "PASSED: lightweight validation checks passed."

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from backend.tools.arxiv import ArxivTool
@@ -42,15 +43,31 @@ class ToolRegistry:
         if any(hint in task_lower for hint in _GITHUB_HINTS):
             selected.append("github")
         if not selected:
-            selected = ["arxiv", "github"]
+            selected = ["github", "arxiv"]
         return [name for name in selected if name in self._tools]
 
     async def run_for_task(self, task: str) -> list[ToolResult]:
-        results: list[ToolResult] = []
-        for name in self.select_for_task(task):
-            result = await self.run(name, task)
-            results.append(result)
-        return results
+        names = self.select_for_task(task)
+        if not names:
+            return []
+        results = await asyncio.gather(
+            *[self.run(name, task) for name in names],
+            return_exceptions=True,
+        )
+        out: list[ToolResult] = []
+        for name, result in zip(names, results):
+            if isinstance(result, Exception):
+                logger.warning("Tool %s raised: %s", name, result)
+                out.append(
+                    ToolResult(
+                        name,
+                        True,
+                        f"【{name}】执行异常，已跳过（{result}）。",
+                    )
+                )
+            else:
+                out.append(result)
+        return out
 
 
 def create_tool_registry() -> ToolRegistry:

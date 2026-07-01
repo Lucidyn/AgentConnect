@@ -16,10 +16,28 @@ from backend.platform import platform
 router = APIRouter(prefix="/tasks", tags=["tasks"], dependencies=[Depends(verify_api_key)])
 
 
+def _task_preview(task) -> str:
+    text = (task.input or "")[:80]
+    if len(task.input or "") > 80:
+        text += "…"
+    return text
+
+
+async def _task_with_queue(task) -> dict:
+    data = task.model_dump()
+    data["preview"] = _task_preview(task)
+    queue = await platform.task_store.get_queue_info(task.id)
+    data.update(queue)
+    return data
+
+
 @router.get("")
 async def list_tasks(limit: int = Depends(clamp_limit)):
     tasks = await platform.task_store.list_tasks(limit=limit)
-    return {"tasks": [t.model_dump() for t in tasks]}
+    items = []
+    for t in tasks:
+        items.append(await _task_with_queue(t))
+    return {"tasks": items}
 
 
 @router.get("/result")
@@ -51,7 +69,7 @@ async def get_task(task_id: str):
     task = await platform.task_store.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
-    return {"task": task.model_dump()}
+    return {"task": await _task_with_queue(task)}
 
 
 @router.get("/{task_id}/messages")
@@ -136,6 +154,8 @@ async def stream_task(task_id: str):
                 "status": current.status.value,
                 "result": current.result,
             }
+            queue = await platform.task_store.get_queue_info(task_id)
+            payload.update(queue)
             if current.status == TaskStatus.WAITING_APPROVAL:
                 payload["approval_message"] = (current.context or {}).get("approval_message", "")
             line = json.dumps(payload, ensure_ascii=False)
@@ -185,9 +205,12 @@ async def submit_task(
         collaboration_mode=req.collaboration_mode,
         negotiation=req.negotiation,
     )
+    queue = await platform.task_store.get_queue_info(task.id)
     return TaskResponse(
         task_id=task.id,
         message_id=message.id if message else "",
         status=task.status.value,
         task=req.task,
+        queue_position=queue["queue_position"],
+        estimated_wait_seconds=queue["estimated_wait_seconds"],
     )

@@ -25,6 +25,8 @@ class TaskResponse(BaseModel):
     message_id: str
     status: str
     task: str
+    queue_position: int = 0
+    estimated_wait_seconds: int = 0
 
 
 class MemoryQueryRequest(BaseModel):

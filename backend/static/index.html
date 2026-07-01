@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Agent Connect — 多智能体协作平台</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
       --bg: #0f1117;
@@ -589,6 +590,170 @@
       padding: 0.2rem 0;
     }
 
+    .result-panel {
+      margin-top: 0.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .result-panel .result-status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.75rem;
+    }
+    .result-panel .result-status .badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .result-panel .badge.completed { background: #14532d; color: #86efac; }
+    .result-panel .badge.failed { background: #7f1d1d; color: #fca5a5; }
+    .result-panel .badge.running { background: #1e3a5f; color: #93c5fd; }
+    .result-panel .badge.queued { background: var(--bg); color: var(--muted); }
+    .result-panel .badge.waiting_approval { background: #422006; color: #fcd34d; }
+    .result-panel .result-body {
+      padding: 0.75rem;
+      max-height: none;
+      overflow-y: visible;
+      font-size: 0.8rem;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+    .result-panel .result-body.collapsed {
+      max-height: 320px;
+      overflow-y: auto;
+    }
+    .result-panel .result-body.markdown-body h1,
+    .result-panel .result-body.markdown-body h2,
+    .result-panel .result-body.markdown-body h3 {
+      font-size: 0.95rem;
+      margin: 0.6rem 0 0.35rem;
+    }
+    .result-panel .result-body.markdown-body p { margin: 0.35rem 0; }
+    .result-panel .result-body.markdown-body ul,
+    .result-panel .result-body.markdown-body ol {
+      margin: 0.35rem 0;
+      padding-left: 1.2rem;
+    }
+    .result-panel .result-body.markdown-body code {
+      background: var(--bg);
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 0.75rem;
+    }
+    .result-panel .result-body.markdown-body pre {
+      background: var(--bg);
+      padding: 0.5rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 0.72rem;
+      margin: 0.4rem 0;
+    }
+    .result-panel .result-step .step-content {
+      white-space: normal;
+      word-break: break-word;
+    }
+    .result-panel .result-step .step-content.markdown-body pre {
+      background: var(--bg);
+      padding: 0.5rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 0.72rem;
+    }
+    .result-panel .result-steps {
+      border-top: 1px solid var(--border);
+    }
+    .result-panel .result-step {
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.75rem;
+      line-height: 1.5;
+    }
+    .result-panel .result-step:last-child { border-bottom: none; }
+    .result-panel .result-step .step-meta {
+      font-size: 0.65rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+    .result-panel .result-actions {
+      padding: 0.4rem 0.75rem;
+      border-top: 1px solid var(--border);
+      text-align: right;
+    }
+    .result-panel .result-actions button {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 10px;
+      color: var(--muted);
+      font-size: 0.7rem;
+      cursor: pointer;
+    }
+    .result-panel .result-actions button:hover { border-color: var(--accent); color: var(--text); }
+
+    .queue-banner {
+      display: none;
+      margin-top: 0.75rem;
+      padding: 0.6rem 0.75rem;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      color: #cbd5e1;
+    }
+    .queue-banner.show { display: block; }
+
+    .task-history {
+      margin-top: 0.5rem;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .task-history-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      margin-bottom: 4px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.72rem;
+    }
+    .task-history-item:hover { border-color: var(--accent); }
+    .task-history-item.active { border-color: var(--accent); background: #1e2230; }
+    .task-history-item .th-preview {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+    }
+    .task-history-item .th-badge {
+      font-size: 0.6rem;
+      padding: 1px 5px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .th-badge.completed { background: #14532d; color: #86efac; }
+    .th-badge.failed, .th-badge.cancelled { background: #7f1d1d; color: #fca5a5; }
+    .th-badge.running, .th-badge.planning, .th-badge.submitted { background: #1e3a5f; color: #93c5fd; }
+    .th-badge.queued { background: var(--bg); color: var(--muted); }
+    .th-badge.waiting_approval { background: #422006; color: #fcd34d; }
+
+    .quick-tasks button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     .blackboard-panel {
       margin-top: 1rem;
       max-height: 220px;
@@ -740,18 +905,33 @@
         <div class="stat"><span>消息总数</span><span class="value" id="stat-messages">0</span></div>
         <div class="stat"><span>LLM</span><span class="value" id="stat-llm">-</span></div>
         <div class="stat"><span>当前任务</span><span class="value" id="stat-task">-</span></div>
+        <div class="stat"><span>队列</span><span class="value" id="stat-queue">-</span></div>
         <div class="stat"><span>消息总线</span><span class="value" id="stat-bus">Redis</span></div>
       </div>
-      <h2>任务时间线</h2>
+
+      <h2>任务历史</h2>
+      <div id="task-history" class="task-history"><div class="empty">暂无任务</div></div>
+
+      <div id="queue-banner" class="queue-banner"></div>
+
+      <h2 style="margin-top:1.5rem">任务时间线</h2>
       <div id="timeline" class="timeline"><div class="empty">提交任务后显示</div></div>
 
+      <h2 style="margin-top:1.5rem">任务结果</h2>
+      <div id="task-result" class="result-panel">
+        <div class="empty">任务完成后在此显示汇总与分步产出</div>
+      </div>
+
       <div id="approval-box" class="approval-box">
-        <strong>等待人工审批</strong>
+        <strong>需要人工决定</strong>
+        <p id="approval-hint" style="font-size:0.7rem;color:var(--muted);margin:4px 0 6px">
+          自动重试已达上限。请选择：放行继续、退回修改，或终止任务。
+        </p>
         <p id="approval-msg"></p>
         <div class="approval-btns">
-          <button onclick="approveTask('approve')">通过</button>
+          <button onclick="approveTask('approve')">通过并继续</button>
           <button onclick="approveTask('retry')">退回修改</button>
-          <button onclick="approveTask('reject')">拒绝</button>
+          <button class="danger" onclick="approveTask('reject')">终止任务</button>
         </div>
       </div>
 
@@ -759,20 +939,20 @@
       <div id="blackboard" class="blackboard-panel"><div class="empty">提交任务后显示</div></div>
 
       <h2 style="margin-top:1.5rem">快速任务</h2>
-      <div id="quick-tasks">
-        <button onclick="quickTask('查一下 YOLO 最新论文并实现检测服务')" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
+      <div id="quick-tasks" class="quick-tasks">
+        <button type="button" class="quick-btn" data-task="查一下 YOLO 最新论文并实现检测服务" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
           YOLO 检测服务
         </button>
-        <button onclick="quickTask('调研 Qwen-VL 多模态能力，分析竞品并写 Demo')" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
+        <button type="button" class="quick-btn" data-task="调研 Qwen-VL 多模态能力，分析竞品并写 Demo" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
           Qwen-VL Demo
         </button>
-        <button onclick="quickTemplate('research_write_translate','调研 AI Agent 趋势并写中文稿再译成英文')" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
+        <button type="button" class="quick-btn" data-template="research_write_translate" data-task="调研 AI Agent 趋势并写中文稿再译成英文" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
           调研+写作+翻译
         </button>
-        <button onclick="quickTemplate('hybrid_report','做一份大模型行业分析报告')" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
+        <button type="button" class="quick-btn" data-template="hybrid_report" data-task="做一份大模型行业分析报告" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
           跨领域混合报告
         </button>
-        <button onclick="quickTask('实现船舶图像识别 API')" style="width:100%;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
+        <button type="button" class="quick-btn" data-task="实现船舶图像识别 API" style="width:100%;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
           船舶识别 API
         </button>
       </div>
@@ -787,6 +967,9 @@
     let currentTaskId = null;
     let timelineTimer = null;
     let workspaceTimer = null;
+    let historyTimer = null;
+    let taskSubmitting = false;
+    let resultExpanded = true;
     let agentNames = [];
     let planTemplates = [];
     const roleMap = {
@@ -921,6 +1104,82 @@
       return d.innerHTML;
     }
 
+    function renderMarkdown(text) {
+      if (!text) return '';
+      if (typeof marked !== 'undefined') {
+        marked.setOptions({ breaks: true, gfm: true });
+        return marked.parse(text);
+      }
+      return escapeHtml(text).replace(/\n/g, '<br>');
+    }
+
+    function formatWait(seconds) {
+      if (!seconds || seconds <= 0) return '即将开始';
+      if (seconds < 60) return `约 ${seconds} 秒`;
+      const m = Math.ceil(seconds / 60);
+      return `约 ${m} 分钟`;
+    }
+
+    function updateQueueBanner(data) {
+      const el = document.getElementById('queue-banner');
+      if (!el) return;
+      if (data.status === 'queued' && data.queue_position > 0) {
+        el.className = 'queue-banner show';
+        el.innerHTML = `排队中：第 <strong>${data.queue_position}</strong> 位`
+          + (data.queued_ahead > 0 ? `，前面还有 ${data.queued_ahead} 个` : '')
+          + ` · 预计等待 ${formatWait(data.estimated_wait_seconds)}`;
+      } else {
+        el.className = 'queue-banner';
+        el.innerHTML = '';
+      }
+    }
+
+    function updateQueueStat(data) {
+      const el = document.getElementById('stat-queue');
+      if (!el) return;
+      if (data && data.status === 'queued' && data.queue_position > 0) {
+        el.textContent = `#${data.queue_position} · ${formatWait(data.estimated_wait_seconds)}`;
+      } else {
+        el.textContent = '-';
+      }
+    }
+
+    async function loadTaskHistory() {
+      const el = document.getElementById('task-history');
+      if (!el) return;
+      try {
+        const res = await apiFetch('/tasks?limit=15', { silent: true });
+        if (!res.ok) return;
+        const data = await res.json();
+        const tasks = data.tasks || [];
+        if (!tasks.length) {
+          el.innerHTML = '<div class="empty">暂无任务</div>';
+          return;
+        }
+        el.innerHTML = tasks.map(t => {
+          const active = t.id === currentTaskId ? ' active' : '';
+          const preview = escapeHtml(t.preview || t.input || '').slice(0, 60);
+          const badge = t.status || 'unknown';
+          return `<div class="task-history-item${active}" data-id="${t.id}" onclick="selectTask('${t.id}')">
+            <span class="th-preview" title="${escapeHtml(t.input || '')}">${preview}</span>
+            <span class="th-badge ${badge}">${badge}</span>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function selectTask(taskId) {
+      if (!taskId || taskId === currentTaskId) return;
+      watchTask(taskId);
+    }
+    window.selectTask = selectTask;
+
+    function setQuickButtonsDisabled(disabled) {
+      document.querySelectorAll('.quick-btn').forEach(btn => { btn.disabled = disabled; });
+    }
+
     async function loadTemplates() {
       try {
         const res = await apiFetch('/templates');
@@ -970,6 +1229,114 @@
         ? `${data.llm_provider}`
         : `规则模式 (${data.llm_provider})`;
       document.getElementById('stat-llm').textContent = llm;
+      const q = data.queue || {};
+      const qEl = document.getElementById('stat-queue');
+      if (qEl && q.queued > 0) {
+        qEl.textContent = `${q.running || 0}/${q.max_concurrent} 运行 · ${q.queued} 排队`;
+      }
+    }
+
+    function resetResultPanel() {
+      const el = document.getElementById('task-result');
+      el.innerHTML = '<div class="empty">任务完成后在此显示汇总与分步产出</div>';
+    }
+
+    function statusBadgeClass(status) {
+      if (status === 'completed') return 'completed';
+      if (status === 'failed' || status === 'cancelled') return 'failed';
+      if (status === 'waiting_approval') return 'waiting_approval';
+      if (status === 'queued') return 'queued';
+      return 'running';
+    }
+
+    function renderResultPanel(task, workspaceEntries) {
+      const el = document.getElementById('task-result');
+      const status = task.status || 'unknown';
+      const summary = (task.result || '').trim();
+      const error = (task.error || '').trim();
+      const entries = workspaceEntries || [];
+
+      let bodyHtml = '';
+      const collapsedClass = resultExpanded ? '' : ' collapsed';
+      if (status === 'failed' || status === 'cancelled') {
+        bodyHtml = `<div class="result-body markdown-body${collapsedClass}">${renderMarkdown(error || summary || '任务未成功完成')}</div>`;
+      } else if (status === 'waiting_approval') {
+        const approvalMsg = (task.context && task.context.approval_message) || summary || '等待人工审批';
+        bodyHtml = `<div class="result-body markdown-body${collapsedClass}">${renderMarkdown(approvalMsg)}</div>`;
+      } else if (summary) {
+        bodyHtml = `<div class="result-body markdown-body${collapsedClass}">${renderMarkdown(summary)}</div>`;
+      } else if (['running', 'planning', 'submitted'].includes(status)) {
+        bodyHtml = '<div class="result-body" style="color:var(--muted)">执行中，分步产出将实时更新…</div>';
+      } else if (status === 'queued') {
+        const pos = task.queue_position || 0;
+        const wait = formatWait(task.estimated_wait_seconds || 0);
+        bodyHtml = `<div class="result-body" style="color:var(--muted)">排队中${pos ? `（第 ${pos} 位，预计 ${wait}）` : ''}…</div>`;
+      } else {
+        bodyHtml = '<div class="result-body" style="color:var(--muted)">暂无汇总结果</div>';
+      }
+
+      let stepsHtml = '';
+      if (entries.length) {
+        stepsHtml = '<div class="result-steps">' + entries.map(entry => `
+          <div class="result-step">
+            <div class="step-meta">${escapeHtml(entry.author || 'Agent')} · ${escapeHtml(entry.entry_type || 'output')}</div>
+            <div class="step-content markdown-body">${renderMarkdown(entry.content || '')}</div>
+          </div>
+        `).join('') + '</div>';
+      }
+
+      const copyText = [summary, ...entries.map(e => `${e.author}:\n${e.content || ''}`)].filter(Boolean).join('\n\n---\n\n');
+      const toggleLabel = resultExpanded ? '收起' : '展开全文';
+      const actionsHtml = `<div class="result-actions">
+        <button type="button" onclick="toggleResultExpand()">${toggleLabel}</button>
+        ${copyText ? '<button type="button" onclick="copyTaskResult()">复制全部</button>' : ''}
+      </div>`;
+
+      el.innerHTML = `
+        <div class="result-status">
+          <span>任务 ${escapeHtml(task.id || '').slice(0, 8)}…</span>
+          <span class="badge ${statusBadgeClass(status)}">${escapeHtml(status)}</span>
+        </div>
+        ${bodyHtml}
+        ${stepsHtml}
+        ${actionsHtml}
+      `;
+      el.dataset.copyText = copyText;
+    }
+
+    function toggleResultExpand() {
+      resultExpanded = !resultExpanded;
+      if (currentTaskId) loadResult(currentTaskId);
+    }
+    window.toggleResultExpand = toggleResultExpand;
+
+    function copyTaskResult() {
+      const el = document.getElementById('task-result');
+      const text = el.dataset.copyText || '';
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板', 'ok')).catch(() => showToast('复制失败', 'error'));
+    }
+
+    async function loadResult(taskId) {
+      try {
+        const [taskRes, wsRes] = await Promise.all([
+          apiFetch(`/tasks/${taskId}`, { silent: true }),
+          apiFetch(`/tasks/${taskId}/workspace`, { silent: true }),
+        ]);
+        if (!taskRes.ok) return;
+        const taskData = await taskRes.json();
+        const task = taskData.task || {};
+        let entries = [];
+        if (wsRes.ok) {
+          const wsData = await wsRes.json();
+          entries = (wsData.workspace && wsData.workspace.entries) || [];
+        }
+        renderResultPanel(task, entries);
+        updateQueueBanner(task);
+        updateQueueStat(task);
+      } catch (e) {
+        console.error(e);
+      }
     }
 
     function watchTask(taskId) {
@@ -979,19 +1346,28 @@
       currentTaskId = taskId;
       document.getElementById('stat-task').textContent = 'queued…';
       document.getElementById('approval-box').classList.remove('show');
+      resetResultPanel();
       loadTimeline(taskId);
       loadWorkspace(taskId);
+      loadResult(taskId);
+      loadTaskHistory();
       timelineTimer = setInterval(() => loadTimeline(taskId), 2000);
-      workspaceTimer = setInterval(() => loadWorkspace(taskId), 3000);
+      workspaceTimer = setInterval(() => {
+        loadWorkspace(taskId);
+        loadResult(taskId);
+      }, 3000);
 
       taskSource = new EventSource(`/tasks/${taskId}/stream`);
       taskSource.onmessage = (e) => {
         const data = JSON.parse(e.data);
         if (data.error) return;
         document.getElementById('stat-task').textContent = data.status;
+        updateQueueBanner(data);
+        updateQueueStat(data);
         if (data.status === 'waiting_approval') {
           document.getElementById('approval-box').classList.add('show');
           document.getElementById('approval-msg').textContent = data.approval_message || '审查未通过，请审批';
+          loadResult(taskId);
         } else {
           document.getElementById('approval-box').classList.remove('show');
         }
@@ -1001,6 +1377,8 @@
           clearInterval(workspaceTimer);
           loadTimeline(taskId);
           loadWorkspace(taskId);
+          loadResult(taskId);
+          loadTaskHistory();
         }
       };
     }
@@ -1113,12 +1491,18 @@
     }
 
     async function submitTask(extraBody = {}) {
+      if (taskSubmitting) {
+        showToast('请等待当前任务提交完成', 'info');
+        return;
+      }
       const input = document.getElementById('task-input');
       const btn = document.getElementById('submit-btn');
       const task = input.value.trim();
       if (!task) return;
 
+      taskSubmitting = true;
       btn.disabled = true;
+      setQuickButtonsDisabled(true);
       btn.textContent = '处理中...';
 
       const body = { task, ...extraBody };
@@ -1136,33 +1520,42 @@
         if (!res.ok) return;
         const data = await res.json();
         if (data.task_id) {
-          showToast(`任务已提交 · ${data.task_id.slice(0, 8)}…`, 'ok');
+          const queueHint = data.status === 'queued' && data.queue_position
+            ? ` · 排队 #${data.queue_position}`
+            : '';
+          showToast(`任务已提交 · ${data.task_id.slice(0, 8)}…${queueHint}`, 'ok');
           watchTask(data.task_id);
+          loadTaskHistory();
         }
       } catch (e) {
         console.error(e);
       } finally {
+        taskSubmitting = false;
         btn.disabled = false;
+        setQuickButtonsDisabled(false);
         btn.textContent = '提交任务';
       }
     }
     window.submitTask = submitTask;
     window.apiFetch = apiFetch;
 
-    function quickTask(task) {
-      document.getElementById('template-select').value = '';
-      document.getElementById('task-input').value = task;
-      submitTask();
-    }
-
-    function quickTemplate(templateId, task) {
-      document.getElementById('template-select').value = templateId;
-      document.getElementById('task-input').value = task;
-      submitTask();
-    }
+    document.querySelectorAll('.quick-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (taskSubmitting) return;
+        const templateId = btn.dataset.template || '';
+        const task = btn.dataset.task || '';
+        if (templateId) {
+          document.getElementById('template-select').value = templateId;
+        } else {
+          document.getElementById('template-select').value = '';
+        }
+        document.getElementById('task-input').value = task;
+        submitTask();
+      });
+    });
 
     document.getElementById('task-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') submitTask();
+      if (e.key === 'Enter' && !taskSubmitting) submitTask();
     });
 
     connect();
@@ -1174,8 +1567,10 @@
     loadAgents();
     loadHealth();
     loadTemplates();
+    loadTaskHistory();
     if (window.ComposeEditor) window.ComposeEditor.init();
     setInterval(loadAgents, 5000);
+    historyTimer = setInterval(loadTaskHistory, 8000);
   </script>
 </body>
 </html>
