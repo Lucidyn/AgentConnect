@@ -10,3 +10,14 @@ window.agentConnectModules = {
   applyPartialStream,
   createStreamState,
 };
+
+function bootComposeEditor() {
+  ComposeEditor.ensureInit();
+  window.dispatchEvent(new CustomEvent('agentConnect:ready'));
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootComposeEditor);
+} else {
+  bootComposeEditor();
+}

@@ -14,6 +14,7 @@ const NODE_W = 132;
     Reviewer: '#ef4444',
     TestRunner: '#84cc16',
     Vision: '#a855f7',
+    Legal: '#6366f1',
     Planner: '#f59e0b',
   };
 
@@ -27,8 +28,10 @@ const NODE_W = 132;
   let validationTimer = null;
 
   const els = {};
+  let initialized = false;
 
   function init() {
+    if (initialized) return;
     els.canvas = document.getElementById('dag-canvas');
     els.svg = document.getElementById('dag-svg');
     els.wrap = document.getElementById('dag-canvas-wrap');
@@ -61,6 +64,11 @@ const NODE_W = 132;
 
     renderPalette();
     renderAll();
+    initialized = true;
+  }
+
+  function ensureInit() {
+    init();
   }
 
   function setAgentNames(names) {
@@ -587,6 +595,7 @@ const NODE_W = 132;
 
 export const ComposeEditor = {
   init,
+  ensureInit,
   setAgentNames,
   renderAll,
   buildPlan,

@@ -41,6 +41,13 @@ agents:
     enabled: true
     runtime: native
     llm_model: PaddleOCR + YOLO
+  - name: legal
+    module: plugins.legal.agent
+    class: LegalAgent
+    enabled: true
+    runtime: native
+    jurisdiction: 中国大陆
+    focus: 合同与合规
   - name: summarizer
     module: plugins.openai_agents.summarizer
     class: SummarizerAgent

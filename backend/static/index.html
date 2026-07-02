@@ -215,7 +215,7 @@
     const topoClass = {
       Research: 'research', Coder: 'coder', Reviewer: 'reviewer',
       Writer: 'research', Analyst: 'coder', Translator: 'vision',
-      TestRunner: 'coder', Vision: 'vision', Planner: 'planner',
+      TestRunner: 'coder', Vision: 'vision', Legal: 'research', Planner: 'planner',
     };
 
     const API_KEY_STORAGE = 'agent_connect_api_key';
@@ -272,6 +272,7 @@
       document.getElementById('tab-compose').classList.toggle('active', name === 'compose');
       document.getElementById('tab-admin').classList.toggle('active', name === 'admin');
       if (name === 'compose' && window.ComposeEditor) {
+        window.ComposeEditor.ensureInit?.();
         window.ComposeEditor.renderAll();
       }
       if (name === 'admin') loadAdminKeys();
@@ -983,7 +984,11 @@
     loadHealth();
     loadTemplates();
     loadTaskHistory();
-    if (window.ComposeEditor) window.ComposeEditor.init();
+    function bootComposePage() {
+      window.ComposeEditor?.ensureInit?.();
+    }
+    if (window.ComposeEditor) bootComposePage();
+    else window.addEventListener('agentConnect:ready', bootComposePage);
     setInterval(loadAgents, 5000);
     historyTimer = setInterval(loadTaskHistory, 8000);
   </script>
