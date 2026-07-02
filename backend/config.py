@@ -96,6 +96,16 @@ class Settings(BaseSettings):
     task_input_max_length: int = 8000
     api_max_list_limit: int = 100
 
+    # Project workspace (local directory for coding / pytest)
+    workspace_enabled: bool = True
+    workspace_allowed_roots: str = ""  # comma-separated; empty = repo root + cwd
+    workspace_create_if_missing: bool = True
+    workspace_write_enabled: bool = True
+    workspace_max_read_bytes: int = 200_000
+    workspace_max_files_in_tree: int = 80
+    workspace_max_tree_depth: int = 4
+    workspace_max_snippet_files: int = 8
+
     # Negotiation
     negotiation_max_rounds: int = 2
 

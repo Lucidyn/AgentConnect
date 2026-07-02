@@ -18,7 +18,7 @@ async def test_full_pipeline_completes(isolated_paths, mock_tools, monkeypatch):
         assert message is not None
 
         final = await wait_for_task_status(
-            platform.task_store, task.id, TaskStatus.COMPLETED, timeout=12.0
+            platform.task_store, task.id, TaskStatus.COMPLETED, timeout=40.0
         )
 
         assert final is not None

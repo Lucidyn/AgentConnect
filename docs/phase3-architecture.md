@@ -164,10 +164,16 @@ WORKER_CONSUMER_GROUP=ac-workers
 WORKER_POLL_INTERVAL=2
 ```
 
-### Postgres integration tests (local only)
+### Postgres integration tests (local / CI)
 
-`tests/` is not tracked in Git. Run locally when Postgres is available:
+带 `@pytest.mark.postgres` 的用例需可用 Postgres：
 
 ```bash
 DATABASE_URL=postgresql://agent:agent@localhost:5432/agentconnect pytest -m postgres
+```
+
+GitHub Actions 默认跳过 `tests/integration` 与 postgres/redis 标记测试；本地可跑全量：
+
+```bash
+pytest tests/ -q
 ```

@@ -347,13 +347,11 @@ class Platform:
         return merged
 
     async def _record_llm_usage(self, task_id: str, agent: str, entry: LLMUsageEntry) -> None:
+        if not entry.agent:
+            entry.agent = agent
+        await self.task_store.append_llm_usage(task_id, entry)
         task = await self.task_store.get(task_id)
-        if not task:
-            return
-        ctx = TaskContext.model_validate(task.context or {})
-        ctx.llm_usage.append(entry)
-        await self.task_store.save_context(task_id, ctx.model_dump(mode="json"))
-        if self.tenant_store:
+        if task and self.tenant_store:
             from backend.core.budget import record_usage_spend
 
             await record_usage_spend(self.tenant_store, task.tenant_id, entry)
@@ -387,6 +385,8 @@ class Platform:
         custom_plan: dict | None = None,
         collaboration_mode: str = "",
         negotiation: bool | None = None,
+        workspace_path: str = "",
+        workspace_write_enabled: bool = True,
     ) -> tuple[TaskRecord, Message | None]:
         if not self.bus or not self.task_queue:
             raise RuntimeError("Platform not started")
@@ -416,6 +416,16 @@ class Platform:
             ctx_updates["negotiation"] = negotiation
         else:
             ctx_updates.setdefault("negotiation", False)
+
+        if workspace_path:
+            from backend.core.project_workspace import resolve_workspace_path
+
+            resolved = resolve_workspace_path(
+                workspace_path,
+                create=settings.workspace_create_if_missing,
+            )
+            ctx_updates["workspace_path"] = str(resolved)
+            ctx_updates["workspace_write_enabled"] = workspace_write_enabled
 
         if ctx_updates:
             ctx = dict(task.context or {})

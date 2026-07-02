@@ -11,6 +11,23 @@ from backend.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
+_MAX_DESC_LEN = 240
+_SPAM_HINTS = ("pdf下载", "百度云", "电子书", "网盘", "磁力", "torrent")
+
+
+def _clean_text(text: str, *, limit: int = _MAX_DESC_LEN) -> str:
+    cleaned = " ".join((text or "").split())
+    if len(cleaned) > limit:
+        cleaned = cleaned[:limit].rstrip() + "…"
+    return cleaned
+
+
+def _looks_spam(description: str) -> bool:
+    lower = (description or "").lower()
+    if len(description) > 500:
+        return True
+    return any(hint in lower for hint in _SPAM_HINTS)
+
 
 class GitHubTool(Tool):
     name = "github"
@@ -36,12 +53,25 @@ class GitHubTool(Tool):
                 return ToolResult(self.name, True, f"No GitHub repos found for: {query}")
 
             lines = [f"【GitHub】{len(items)} repos found for «{query}»"]
-            for idx, repo in enumerate(items, 1):
+            shown = 0
+            for repo in items:
+                description = _clean_text(repo.get("description") or "")
+                if _looks_spam(description):
+                    continue
+                shown += 1
                 lines.append(
-                    f"{idx}. {repo['full_name']} ⭐ {repo['stargazers_count']}\n"
-                    f"   {repo.get('description') or 'No description'}\n"
+                    f"{shown}. {repo['full_name']} ⭐ {repo['stargazers_count']}\n"
+                    f"   {description or 'No description'}\n"
                     f"   Language: {repo.get('language') or 'N/A'}\n"
                     f"   URL: {repo['html_url']}"
+                )
+                if shown >= 5:
+                    break
+            if shown == 0:
+                return ToolResult(
+                    self.name,
+                    True,
+                    f"【GitHub】未找到可用仓库（检索词：{query}），请依据模型知识继续。",
                 )
             return ToolResult(self.name, True, "\n".join(lines))
         except Exception as exc:

@@ -72,9 +72,17 @@ def fork_marketplace_template(template_id: str, tenant_id: str) -> dict[str, Any
     source = get_marketplace(template_id)
     if not source:
         return None
+    fork_marker = f"Forked from marketplace:{template_id}"
+    from backend.core.saved_templates import get_saved, list_saved
+
+    for item in list_saved(tenant_id):
+        if item.get("description") == fork_marker:
+            existing = get_saved(item["id"], tenant_id=tenant_id)
+            if existing:
+                return existing
     return save_template(
         name=source.get("name", template_id),
-        description=f"Forked from marketplace:{template_id}",
+        description=fork_marker,
         plan=source.get("plan") or {},
         tenant_id=tenant_id,
     )

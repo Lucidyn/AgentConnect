@@ -13,6 +13,30 @@ from backend.platform import platform
 router = APIRouter(tags=["system"])
 
 
+@router.get("/workspace/validate")
+async def validate_workspace(
+    path: str = "",
+    _: AuthContext = Depends(require_role(Role.VIEWER)),
+):
+    from backend.core.project_workspace import allowed_workspace_roots, resolve_workspace_path
+
+    if not path.strip():
+        return {
+            "valid": False,
+            "detail": "请填写工作区路径",
+            "allowed_roots": [str(p) for p in allowed_workspace_roots()],
+        }
+    try:
+        resolved = resolve_workspace_path(path, create=False)
+        return {"valid": True, "path": str(resolved), "allowed_roots": [str(p) for p in allowed_workspace_roots()]}
+    except ValueError as exc:
+        return {
+            "valid": False,
+            "detail": str(exc),
+            "allowed_roots": [str(p) for p in allowed_workspace_roots()],
+        }
+
+
 @router.get("/runtimes", dependencies=[Depends(get_auth_context)])
 async def get_runtimes():
     return {"runtimes": list_runtimes()}

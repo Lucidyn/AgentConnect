@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <link rel="stylesheet" href="/static/css/app.css" />
+  <link rel="stylesheet" href="/static/css/app.css?v=7" />
   <script type="module" src="/static/assets/app.js"></script>
 </head>
 <body>
@@ -18,6 +18,7 @@
       <h1><span>Agent</span> Connect</h1>
     </div>
     <div class="header-actions">
+      <a href="/guide" class="header-guide-link" title="使用指南">使用指南</a>
       <input id="api-key-input" class="api-key-input" type="password" placeholder="API Key (可选)" />
       <span id="auth-badge" class="auth-badge" style="display:none"></span>
       <div id="connection-status" class="connection-pill">
@@ -42,39 +43,68 @@
       </div>
 
       <div class="view-panel active" id="view-run">
-        <div class="run-controls">
-          <select id="template-select">
-            <option value="">自动计划 (Planner LLM)</option>
-          </select>
-        </div>
-        <div class="task-input task-input-bar">
-          <div class="task-input-wrap">
-            <input
-              id="task-input"
-              type="text"
-              placeholder="输入任务，例如：调研 YOLO26 最新论文并实现检测服务"
-              value="写一个 PaddleOCR 服务"
-              autocomplete="off"
-            />
-            <span class="task-input-hint">中文输入法选字时按回车不会提交；输入完成后按 Enter 或点「提交任务」</span>
+        <div class="run-compose-bar">
+          <div class="workspace-card run-workspace">
+            <div class="run-section">
+              <label class="field-label" for="template-select">执行方式</label>
+              <select id="template-select" class="ui-select">
+                <option value="">自动计划（推荐）</option>
+              </select>
+              <p id="template-hint" class="template-hint">不确定选什么？用自动计划即可，Planner 会根据任务自动安排 Agent。</p>
+            </div>
+            <div class="run-section run-section-workspace is-hidden" id="workspace-section">
+              <label class="field-label" for="workspace-path">工作区路径（编码/测试可选）</label>
+              <input
+                id="workspace-path"
+                class="ui-input"
+                type="text"
+                placeholder="例如：/Users/you/projects/my-app 或 ./my-new-service"
+                autocomplete="off"
+              />
+              <p id="workspace-hint" class="template-hint">留空则只生成代码文本。填写后 Coder 会读写该目录，TestRunner 会在项目根目录跑 pytest。</p>
+            </div>
+            <div class="run-section run-section-task">
+              <div class="task-input task-input-bar">
+                <div class="task-input-wrap">
+                  <label class="field-label" for="task-input">任务描述</label>
+                  <input
+                    id="task-input"
+                    class="ui-input"
+                    type="text"
+                    placeholder="输入任务，例如：调研 YOLO26 最新论文并实现检测服务"
+                    value="写一个 PaddleOCR 服务"
+                    autocomplete="off"
+                  />
+                  <span class="task-input-hint">Enter 提交 · 中文输入法选字时 Enter 不会误提交</span>
+                </div>
+                <button id="submit-btn" class="ui-btn ui-btn-primary" type="button" onclick="submitTask()">提交任务</button>
+              </div>
+            </div>
           </div>
-          <button id="submit-btn" type="button" onclick="submitTask()">提交任务</button>
         </div>
 
-        <div class="topology topo-card" id="topology">
-          <div class="topo-node planner" id="node-User">User</div>
-          <div class="topo-arrow">↓</div>
-          <div class="topo-node planner" id="node-Planner">Planner</div>
-          <div class="topo-arrow">↓</div>
-          <div class="topo-row" id="topo-agents">
-            <div class="topo-node research" id="node-Research">Research</div>
-            <div class="topo-node coder" id="node-Coder">Coder</div>
-            <div class="topo-node reviewer" id="node-Reviewer">Reviewer</div>
+        <div class="view-scroll run-details-scroll">
+          <div class="run-block">
+            <div class="run-block-head">流水线预览</div>
+            <div class="topology topo-card topo-compact" id="topology">
+              <div class="topo-node planner" id="node-User">User</div>
+              <div class="topo-arrow">↓</div>
+              <div class="topo-node planner" id="node-Planner">Planner</div>
+              <div class="topo-arrow">↓</div>
+              <div class="topo-row" id="topo-agents">
+                <div class="topo-node research" id="node-Research">Research</div>
+                <div class="topo-node coder" id="node-Coder">Coder</div>
+                <div class="topo-node reviewer" id="node-Reviewer">Reviewer</div>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div class="messages messages-panel" id="messages">
-          <div class="empty">等待消息...</div>
+          <div class="run-block run-block-messages">
+            <div class="run-block-head">协作消息</div>
+            <div class="messages messages-panel" id="messages">
+              <div class="empty">等待消息...</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -115,20 +145,62 @@
       </div>
 
       <div class="view-panel" id="view-admin">
+        <div class="view-scroll">
         <div class="admin-panel">
-          <h2>租户与 API Key</h2>
-          <p id="admin-auth-info" class="subtle">加载中...</p>
-          <div class="admin-actions">
-            <input id="admin-key-name" type="text" placeholder="新 Key 名称" />
-            <select id="admin-key-role">
-              <option value="operator">operator</option>
-              <option value="viewer">viewer</option>
-              <option value="admin">admin</option>
-            </select>
-            <button type="button" id="btn-create-key">创建 Key</button>
+          <div class="admin-header">
+            <div class="admin-header-icon icon-badge icon-lock"></div>
+            <div>
+              <h2 class="section-title">租户与 API Key</h2>
+              <p class="admin-subtitle">管理租户访问凭证，为团队成员分配不同权限角色</p>
+            </div>
           </div>
-          <pre id="admin-new-key" class="admin-new-key" style="display:none"></pre>
-          <div id="admin-keys-list" class="admin-keys-list"><div class="empty">暂无密钥</div></div>
+
+          <div class="admin-grid">
+            <div class="admin-card admin-card-info">
+              <div class="admin-card-label">当前身份</div>
+              <p id="admin-auth-info" class="admin-tenant-info">加载中...</p>
+              <div class="admin-role-hints">
+                <span class="role-chip viewer">viewer · 只读</span>
+                <span class="role-chip operator">operator · 提交任务</span>
+                <span class="role-chip admin">admin · 管理密钥</span>
+              </div>
+            </div>
+
+            <div class="admin-card admin-card-form">
+              <div class="admin-card-label">创建新密钥</div>
+              <div class="admin-form-row">
+                <label class="admin-field">
+                  <span>名称</span>
+                  <input id="admin-key-name" class="ui-input" type="text" placeholder="例如：team-ops" />
+                </label>
+                <label class="admin-field">
+                  <span>角色</span>
+                  <select id="admin-key-role" class="ui-select">
+                    <option value="operator">operator</option>
+                    <option value="viewer">viewer</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </label>
+                <button type="button" id="btn-create-key" class="ui-btn ui-btn-primary admin-create-btn">创建 Key</button>
+              </div>
+              <pre id="admin-new-key" class="admin-new-key" style="display:none"></pre>
+            </div>
+          </div>
+
+          <div class="admin-card admin-card-list">
+            <div class="admin-list-header">
+              <div class="admin-card-label">密钥列表</div>
+              <span class="admin-list-hint">创建后请立即保存，密钥仅显示一次</span>
+            </div>
+            <div id="admin-keys-list" class="admin-keys-list">
+              <div class="admin-empty">
+                <div class="admin-empty-icon icon-badge icon-key"></div>
+                <p>暂无密钥</p>
+                <span class="subtle">创建第一个 API Key 以启用团队协作</span>
+              </div>
+            </div>
+          </div>
+        </div>
         </div>
       </div>
     </div>
@@ -299,7 +371,9 @@
         }
         if (tabAdmin) tabAdmin.style.display = authProfile.role === 'admin' ? 'inline-block' : 'none';
         const info = document.getElementById('admin-auth-info');
-        if (info) info.textContent = `当前租户：${authProfile.tenant_id}，角色：${authProfile.role}`;
+        if (info) {
+          info.innerHTML = `<strong>${escapeHtml(authProfile.tenant_id)}</strong> · ${escapeHtml(authProfile.role)}`;
+        }
       } catch (e) {
         if (badge) badge.style.display = 'none';
       }
@@ -316,16 +390,24 @@
       const data = await res.json();
       const keys = data.keys || [];
       if (!keys.length) {
-        list.innerHTML = '<div class="empty">暂无密钥</div>';
+        list.innerHTML = `<div class="admin-empty">
+          <div class="admin-empty-icon icon-badge icon-key"></div>
+          <p>暂无密钥</p>
+          <span class="subtle">创建第一个 API Key 以启用团队协作</span>
+        </div>`;
         return;
       }
-      list.innerHTML = keys.map(k => `
+      list.innerHTML = `<div class="admin-keys-table">
+        <div class="admin-keys-head">
+          <span>名称</span><span>角色</span><span>状态</span><span></span>
+        </div>
+        ${keys.map(k => `
         <div class="admin-key-row">
-          <span>${k.name}</span>
-          <span class="subtle">${k.role}</span>
-          <span class="subtle">${k.revoked ? '已吊销' : '有效'}</span>
-          ${k.revoked ? '' : `<button type="button" data-key-id="${k.id}" class="btn-revoke">吊销</button>`}
-        </div>`).join('');
+          <span class="admin-key-name">${escapeHtml(k.name)}</span>
+          <span class="role-badge ${escapeHtml(k.role)}">${escapeHtml(k.role)}</span>
+          <span class="status-badge ${k.revoked ? 'revoked' : 'active'}">${k.revoked ? '已吊销' : '有效'}</span>
+          ${k.revoked ? '<span></span>' : `<button type="button" data-key-id="${k.id}" class="btn-revoke">吊销</button>`}
+        </div>`).join('')}</div>`;
       list.querySelectorAll('.btn-revoke').forEach(btn => {
         btn.addEventListener('click', async () => {
           const keyId = btn.dataset.keyId;
@@ -497,6 +579,48 @@
       document.querySelectorAll('.quick-btn').forEach(btn => { btn.disabled = disabled; });
     }
 
+    const RUN_TEMPLATE_PRESETS = [
+      {
+        id: '',
+        name: '自动计划（推荐）',
+        hint: '不确定选什么就用这项。Planner 会根据你的任务自动拆解并调度 Agent。',
+      },
+      {
+        id: 'coding_standard',
+        name: '编码开发',
+        hint: '适合写 API、实现功能、搭建服务。建议填写工作区路径。流程：调研 → 编码 → 测试 → 审查。',
+      },
+      {
+        id: 'hybrid_report',
+        name: '调研报告',
+        hint: '适合行业分析、竞品调研、写分析报告。流程：调研 → 分析 → 写作 → 审查。',
+      },
+      {
+        id: 'research_write_translate',
+        name: '写作 + 翻译',
+        hint: '适合先写中文稿再译成英文等场景。流程：调研 → 写作 → 翻译 → 审查。',
+      },
+    ];
+
+    const WORKSPACE_TEMPLATE_ID = 'coding_standard';
+
+    function updateRunTemplateUI() {
+      const sel = document.getElementById('template-select');
+      const hint = document.getElementById('template-hint');
+      const section = document.getElementById('workspace-section');
+      if (!sel || !hint) return;
+      const preset = RUN_TEMPLATE_PRESETS.find(p => p.id === sel.value);
+      hint.textContent = preset ? preset.hint : '已选择自定义模板。';
+      const showWorkspace = sel.value === WORKSPACE_TEMPLATE_ID;
+      if (section) {
+        section.classList.toggle('is-hidden', !showWorkspace);
+        if (!showWorkspace) {
+          const pathInput = document.getElementById('workspace-path');
+          if (pathInput) pathInput.value = '';
+        }
+      }
+    }
+
     async function loadTemplates() {
       try {
         const res = await apiFetch('/templates');
@@ -504,16 +628,25 @@
         planTemplates = data.templates || [];
         const runSel = document.getElementById('template-select');
         const composeSel = document.getElementById('compose-template-select');
-        runSel.innerHTML = '<option value="">自动计划 (Planner LLM)</option>';
+        const known = new Set(planTemplates.map(t => t.id));
+        runSel.innerHTML = RUN_TEMPLATE_PRESETS
+          .filter(p => !p.id || known.has(p.id))
+          .map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`)
+          .join('');
         composeSel.innerHTML = '<option value="">加载模板...</option>';
         planTemplates.forEach(t => {
-          runSel.innerHTML += `<option value="${t.id}">${t.name}</option>`;
-          composeSel.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+          const label = t.source === 'saved' ? `${t.name}（已保存）` : t.name;
+          composeSel.innerHTML += `<option value="${t.id}">${escapeHtml(label)}</option>`;
         });
+        runSel.removeEventListener('change', updateRunTemplateUI);
+        runSel.addEventListener('change', updateRunTemplateUI);
+        updateRunTemplateUI();
       } catch (e) {
         console.error(e);
       }
     }
+
+    const SIDEBAR_AGENTS = ['Planner', 'Research', 'Coder', 'Writer', 'Reviewer'];
 
     async function loadAgents() {
       const res = await apiFetch('/agents');
@@ -522,8 +655,9 @@
       const list = document.getElementById('agents-list');
       list.innerHTML = '';
 
-      data.agents.forEach(agent => {
-        const caps = agent.capabilities.map(c => `<span class="cap">${c}</span>`).join('');
+      const visible = data.agents.filter(a => SIDEBAR_AGENTS.includes(a.name));
+      visible.forEach(agent => {
+        const caps = agent.capabilities.slice(0, 3).map(c => `<span class="cap">${c}</span>`).join('');
         const busy = ['running', 'thinking'].includes(agent.status);
         const idle = agent.status === 'idle';
         const pillClass = busy ? 'busy' : idle ? 'idle' : '';
@@ -562,6 +696,30 @@
       el.innerHTML = '<div class="empty">任务完成后在此显示汇总与分步产出</div>';
     }
 
+    function resetUsagePanel() {
+      const el = document.getElementById('task-usage');
+      if (el) el.innerHTML = '<div class="empty subtle">Token 用量在任务执行后显示</div>';
+    }
+
+    function renderUsagePanel(usageData, taskStatus) {
+      const el = document.getElementById('task-usage');
+      if (!el) return;
+      if (!usageData) {
+        el.innerHTML = '<div class="empty subtle">Token 用量暂不可用</div>';
+        return;
+      }
+      const totals = usageData.totals || {};
+      if (!totals.calls && !totals.total_tokens) {
+        const done = ['completed', 'failed', 'cancelled'].includes(taskStatus || '');
+        const hint = done
+          ? '本次任务未记录 Token（可能未调用 LLM 或使用规则 fallback）'
+          : 'Token 用量在任务执行后显示';
+        el.innerHTML = `<div class="empty subtle">${hint}</div>`;
+        return;
+      }
+      el.innerHTML = `<div class="usage-line"><span class="usage-icon">⚡</span> Token ${totals.total_tokens || 0}（输入 ${totals.prompt_tokens || 0} / 输出 ${totals.completion_tokens || 0}） · 约 $${(usageData.estimated_cost_usd || 0).toFixed(4)}</div>`;
+    }
+
     function statusBadgeClass(status) {
       if (status === 'completed') return 'completed';
       if (status === 'failed' || status === 'cancelled') return 'failed';
@@ -582,6 +740,8 @@
       }
       return summary;
     }
+
+    const SKIP_ARTIFACT_TYPES = new Set(['research_result']);
 
     function renderResultPanel(task, workspaceEntries, artifacts, usage) {
       const el = document.getElementById('task-result');
@@ -626,7 +786,9 @@
 
       const copyText = finalResultText(task, status);
       const toggleLabel = resultExpanded ? '收起' : '展开全文';
-      const artifactButtons = (artifacts || []).map(a => (
+      const artifactButtons = (artifacts || [])
+        .filter(a => !SKIP_ARTIFACT_TYPES.has((a.type || '').toLowerCase()))
+        .map(a => (
         `<button type="button" onclick="downloadArtifact('${task.id}', '${a.id}')">下载 ${escapeHtml(a.type || 'artifact')}</button>`
       )).join('');
       const resumeBtn = (status === 'failed' || status === 'completed')
@@ -635,7 +797,6 @@
       const checkpointBtn = currentTaskId
         ? `<button type="button" onclick="loadCheckpoints('${task.id}')">检查点</button>`
         : '';
-      const usageHtml = '';
       const finalHeader = copyText
         ? `<div class="result-final-header">
             <span class="result-final-title">最终结果</span>
@@ -654,13 +815,13 @@
           <span>任务 ${escapeHtml(task.id || '').slice(0, 8)}…</span>
           <span class="badge ${statusBadgeClass(status)}">${escapeHtml(status)}</span>
         </div>
-        ${usageHtml}
         ${finalHeader}
         ${bodyHtml}
         ${stepsHtml}
         ${actionsHtml}
       `;
       el.dataset.copyText = copyText;
+      renderUsagePanel(usage, status);
     }
 
     function toggleResultExpand() {
@@ -704,21 +865,10 @@
     window.copyTaskResult = copyTaskResult;
 
     async function loadUsage(taskId) {
-      const el = document.getElementById('task-usage');
       try {
         const res = await apiFetch(`/tasks/${taskId}/usage`, { silent: true });
-        if (!res.ok) {
-          el.innerHTML = '<div class="empty subtle">Token 用量在任务执行后显示</div>';
-          return null;
-        }
-        const data = await res.json();
-        const totals = data.totals || {};
-        if (!totals.total_tokens && !totals.calls) {
-          el.innerHTML = '<div class="empty subtle">Token 用量在任务执行后显示</div>';
-          return data;
-        }
-        el.innerHTML = `<div class="usage-line"><span class="usage-icon">⚡</span> Token ${totals.total_tokens || 0}（输入 ${totals.prompt_tokens || 0} / 输出 ${totals.completion_tokens || 0}） · 约 $${(data.estimated_cost_usd || 0).toFixed(4)}</div>`;
-        return data;
+        if (!res.ok) return null;
+        return await res.json();
       } catch (e) {
         return null;
       }
@@ -832,6 +982,7 @@
       document.getElementById('stat-task').textContent = 'queued…';
       document.getElementById('approval-box').classList.remove('show');
       resetResultPanel();
+      resetUsagePanel();
       loadTimeline(taskId);
       loadResult(taskId);
       loadTaskHistory();
@@ -955,6 +1106,13 @@
       const body = { task, ...extraBody };
       const templateId = document.getElementById('template-select').value;
       if (templateId) body.template_id = templateId;
+      if (templateId === WORKSPACE_TEMPLATE_ID) {
+        const workspacePath = document.getElementById('workspace-path')?.value.trim() || '';
+        if (workspacePath) {
+          body.workspace_path = workspacePath;
+          body.workspace_write_enabled = true;
+        }
+      }
 
       try {
         switchView('run');
@@ -995,6 +1153,7 @@
         } else {
           document.getElementById('template-select').value = '';
         }
+        updateRunTemplateUI();
         document.getElementById('task-input').value = task;
         submitTask();
       });

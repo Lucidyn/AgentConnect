@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Per-step artifacts shown in UI; Research output is truncated and duplicated elsewhere.
+_SKIP_ARTIFACT_AGENTS = frozenset({"research"})
+
 
 def is_stale_attempt(message: Message, assignment: TaskAssignment) -> bool:
     if "attempt" not in message.metadata:
@@ -416,7 +419,7 @@ class PlanOrchestrator:
                         f"{message.from_agent} 提出：{question[:120]}",
                     )
                 await run_negotiation_round(self, plan, ctx, assignment)
-            if self.task_store:
+            if self.task_store and assignment.agent.lower() not in _SKIP_ARTIFACT_AGENTS:
                 artifact = await self.task_store.save_artifact(
                     Artifact(
                         task_id=self.task_id,

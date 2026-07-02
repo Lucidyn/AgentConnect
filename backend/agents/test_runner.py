@@ -32,7 +32,22 @@ class TestRunnerAgent(Agent):
     accepts = ["assignment_start"]
 
     async def think(self, message: Message) -> str | None:
-        result = self._run_pytest(message.content) or self._run_validation(message.content)
+        ctx = await self.load_task_context()
+        workspace_root = None
+        if ctx.workspace_path:
+            from backend.core.project_workspace import resolve_workspace_path
+
+            try:
+                workspace_root = resolve_workspace_path(ctx.workspace_path)
+            except ValueError:
+                workspace_root = None
+
+        if workspace_root:
+            result = self._run_pytest_in_workspace(workspace_root)
+        else:
+            result = None
+        if not result:
+            result = self._run_pytest(message.content) or self._run_validation(message.content)
 
         if is_test_failed(result):
             await self.request_planner_retry(message, result)
@@ -93,6 +108,27 @@ class TestRunnerAgent(Agent):
                 return f"【测试结果】失败\nFAILED: Python validation failed — {error}"
 
         return cls._mock_test(content)
+
+    def _run_pytest_in_workspace(self, root: Path) -> str | None:
+        if not self._pytest_enabled() or self._sandbox_mode() == "off":
+            return None
+        if not (root / "tests").is_dir() and not (root / "test").is_dir():
+            py_files = list(root.glob("test_*.py")) + list(root.glob("*_test.py"))
+            if not py_files:
+                return (
+                    "【测试结果】失败\n"
+                    f"FAILED: 工作区 {root} 中未找到 tests/ 目录或 test_*.py 文件"
+                )
+        output = self._execute_pytest(root)
+        if output is None:
+            return None
+        passed = output.returncode == 0
+        verdict = "通过" if passed else "失败"
+        status = "PASSED" if passed else "FAILED"
+        body = (output.stdout or "") + (output.stderr or "")
+        body = body.strip() or f"pytest exit code {output.returncode}"
+        header = f"工作区：{root}\n"
+        return f"【测试结果】{verdict}\n{status}: pytest (workspace)\n{header}{body[:4000]}"
 
     def _run_pytest(self, content: str) -> str | None:
         if not self._pytest_enabled() or self._sandbox_mode() == "off":
@@ -158,9 +194,15 @@ class TestRunnerAgent(Agent):
                 except subprocess.TimeoutExpired:
                     return subprocess.CompletedProcess(cmd, 124, "", "pytest timed out")
 
-        cmd = [sys.executable, "-m", "pytest", "-q", str(root)]
+        cmd = [sys.executable, "-m", "pytest", "-q", "."]
         try:
-            return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            return subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=str(root),
+            )
         except subprocess.TimeoutExpired:
             return subprocess.CompletedProcess(cmd, 124, "", "pytest timed out")
 

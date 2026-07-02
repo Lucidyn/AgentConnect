@@ -12,6 +12,8 @@ from backend.models.message import Message, MessageType
 
 logger = logging.getLogger(__name__)
 
+_MAX_TOOL_CONTEXT = 6000
+
 SYSTEM_PROMPT = """你是 Research Agent。输出简短调研要点（每条一行）：
 - 关键发现
 - 参考链接（如有）
@@ -36,6 +38,8 @@ class ResearchAgent(Agent):
         tool_query = build_tool_query(task)
         tool_results = await self.tools.run_for_task(tool_query)
         tool_context = "\n\n".join(r.content for r in tool_results if r.success)
+        if len(tool_context) > _MAX_TOOL_CONTEXT:
+            tool_context = tool_context[:_MAX_TOOL_CONTEXT].rstrip() + "\n…（工具结果已截断）"
 
         shared_context = await self.recall_shared(tool_query)
         prompt_parts = [f"调研任务：{task}"]

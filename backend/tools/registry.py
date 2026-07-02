@@ -48,8 +48,6 @@ class ToolRegistry:
             selected.append("github")
         if any(hint in task_lower for hint in _HTTP_HINTS) and "http" in self._tools:
             selected.append("http")
-        if not selected:
-            selected = ["github", "arxiv"]
         return [name for name in selected if name in self._tools]
 
     async def run_for_task(self, task: str) -> list[ToolResult]:

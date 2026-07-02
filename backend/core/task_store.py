@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -11,12 +13,14 @@ from backend.config import settings
 from backend.constants import MAX_PROCESSED_MESSAGE_IDS
 from backend.core.db.base import Database, create_database
 from backend.core.db.schema import init_schema
+from backend.core.llm_usage import LLMUsageEntry
 from backend.core.metrics import TASKS_FINISHED
 from backend.core.replica import get_replica_id
 from backend.models.auth import DEFAULT_TENANT_ID
 from backend.models.artifact import Artifact
 from backend.models.message import Message
 from backend.models.task import TaskRecord, TaskStatus
+from backend.models.task_context import TaskContext
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +50,34 @@ class TaskStore:
             self._db = None
             self._db_path = db_or_path or settings.tasks_db_path
             self._owns_db = False
+        self._context_locks: dict[str, asyncio.Lock] = {}
+
+    def _context_lock(self, task_id: str) -> asyncio.Lock:
+        lock = self._context_locks.get(task_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._context_locks[task_id] = lock
+        return lock
+
+    async def mutate_context(
+        self,
+        task_id: str,
+        mutator: Callable[[TaskContext], None],
+    ) -> TaskContext | None:
+        async with self._context_lock(task_id):
+            task = await self.get(task_id)
+            if not task:
+                return None
+            ctx = TaskContext.model_validate(task.context or {})
+            mutator(ctx)
+            await self.save_context(task_id, ctx.model_dump(mode="json"))
+            return ctx
+
+    async def append_llm_usage(self, task_id: str, entry: LLMUsageEntry) -> None:
+        def _append(ctx: TaskContext) -> None:
+            ctx.llm_usage.append(entry)
+
+        await self.mutate_context(task_id, _append)
 
     @property
     def database(self) -> Database | None:
@@ -374,18 +406,14 @@ class TaskStore:
         return message_id in ids
 
     async def mark_message_processed(self, task_id: str, message_id: str) -> None:
-        task = await self.get(task_id)
-        if not task:
-            return
-        ctx = dict(task.context or {})
-        ids: list[str] = list(ctx.get("processed_message_ids", []))
-        if message_id in ids:
-            return
-        ids.append(message_id)
-        if len(ids) > MAX_PROCESSED_MESSAGE_IDS:
-            ids = ids[-MAX_PROCESSED_MESSAGE_IDS:]
-        ctx["processed_message_ids"] = ids
-        await self.save_context(task_id, ctx)
+        def _mark(ctx: TaskContext) -> None:
+            if message_id in ctx.processed_message_ids:
+                return
+            ctx.processed_message_ids.append(message_id)
+            if len(ctx.processed_message_ids) > MAX_PROCESSED_MESSAGE_IDS:
+                ctx.processed_message_ids = ctx.processed_message_ids[-MAX_PROCESSED_MESSAGE_IDS:]
+
+        await self.mutate_context(task_id, _mark)
 
     async def save_result(self, task_id: str, result: str) -> None:
         assert self._db is not None

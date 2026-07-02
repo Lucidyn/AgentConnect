@@ -19,6 +19,8 @@ from backend.core.llm_usage import LLMUsageEntry
 from backend.models.checkpoint import CheckpointSnapshot
 from backend.models.plan import TaskAssignment, TaskPlan
 
+_MAX_RESULT_CHARS = 12000
+
 
 class LoopState(BaseModel):
     iteration: int = 0
@@ -76,9 +78,14 @@ class TaskContext(BaseModel):
     checkpoints: list[CheckpointSnapshot] = Field(default_factory=list)
     a2a_query_count: int = 0
     pending_downstream: bool = False
+    workspace_path: str = ""
+    workspace_write_enabled: bool = True
+    workspace_files_written: list[str] = Field(default_factory=list)
 
     def record_result(self, assignment: TaskAssignment, content: str) -> None:
         """Store assignment output and sync legacy named fields."""
+        if len(content) > _MAX_RESULT_CHARS:
+            content = content[:_MAX_RESULT_CHARS].rstrip() + "\n…（输出已截断）"
         self.results[assignment.id] = content
         if assignment.agent == RESEARCH:
             self.research_result = content

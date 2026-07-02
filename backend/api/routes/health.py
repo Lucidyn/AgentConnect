@@ -24,6 +24,14 @@ async def metrics():
     return Response(content=body, media_type=content_type)
 
 
+@router.get("/guide")
+async def guide():
+    guide_file = STATIC_DIR / "guide.html"
+    if guide_file.exists():
+        return FileResponse(guide_file)
+    return {"message": "Guide not found"}
+
+
 @router.get("/")
 async def index():
     index_file = STATIC_DIR / "index.html"

@@ -17,6 +17,8 @@ from backend.core.llm_usage import LLMUsageEntry
 from backend.models.auth import DEFAULT_TENANT_ID
 from backend.models.message import AgentInfo, Message, MessageIntent, MessageType
 from backend.models.task import TaskStatus
+from backend.models.task_context import TaskContext
+from backend.models.task_context import TaskContext
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,14 @@ class Agent(ABC):
     def task_store(self):
         return self.services.task_store
 
+    async def load_task_context(self) -> TaskContext:
+        if not self._current_task_id or not self.task_store:
+            return TaskContext()
+        task = await self.task_store.get(self._current_task_id)
+        if not task:
+            return TaskContext()
+        return TaskContext.model_validate(task.context or {})
+
     @property
     def plugin_config(self) -> dict[str, Any]:
         return self.services.plugin_configs.get(self.name.lower(), {})
@@ -91,7 +101,7 @@ class Agent(ABC):
     async def start(self) -> None:
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
-        await self.registry.update_status(self.name, "running")
+        await self.registry.update_status(self.name, "idle")
 
     async def stop(self) -> None:
         self._running = False
@@ -266,7 +276,7 @@ class Agent(ABC):
 
     async def ask_agent(self, to_agent: str, question: str, reply_to: str = "") -> Message:
         """Ask another agent a bounded question within the current task thread."""
-        from backend.core.a2a_policy import check_a2a_query, record_a2a_query
+        from backend.core.a2a_policy import check_a2a_query
 
         task_id = self._current_task_id
         task = await self.task_store.get(task_id) if task_id and self.task_store else None
@@ -275,7 +285,11 @@ class Agent(ABC):
         if err:
             raise ValueError(err)
         if task and self.task_store:
-            await self.task_store.save_context(task_id, record_a2a_query(ctx))
+
+            def _mark(ctx_obj: TaskContext) -> None:
+                ctx_obj.a2a_query_count += 1
+
+            await self.task_store.mutate_context(task_id, _mark)
         return await self.send(
             to_agent,
             question,
@@ -288,7 +302,7 @@ class Agent(ABC):
 
     async def ask_agent_and_wait(self, to_agent: str, question: str) -> str:
         """In-process bounded query with direct response (surpass internal A2A)."""
-        from backend.core.a2a_policy import check_a2a_query, record_a2a_query
+        from backend.core.a2a_policy import check_a2a_query
 
         task_id = self._current_task_id
         task = await self.task_store.get(task_id) if task_id and self.task_store else None
@@ -297,7 +311,11 @@ class Agent(ABC):
         if err:
             raise ValueError(err)
         if task and self.task_store:
-            await self.task_store.save_context(task_id, record_a2a_query(ctx))
+
+            def _mark(ctx_obj: TaskContext) -> None:
+                ctx_obj.a2a_query_count += 1
+
+            await self.task_store.mutate_context(task_id, _mark)
 
         target = self.services.agents.get(to_agent)
         if not target:

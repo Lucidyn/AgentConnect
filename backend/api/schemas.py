@@ -13,6 +13,13 @@ class TaskRequest(BaseModel):
     custom_plan: dict | None = None
     collaboration_mode: Literal["", "planner", "blackboard"] = ""
     negotiation: bool | None = None
+    workspace_path: str = Field(default="", max_length=512)
+    workspace_write_enabled: bool = True
+
+    @field_validator("workspace_path")
+    @classmethod
+    def strip_workspace_path(cls, value: str) -> str:
+        return (value or "").strip()
 
 
 class ValidatePlanRequest(BaseModel):

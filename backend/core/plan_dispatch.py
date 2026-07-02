@@ -58,6 +58,12 @@ def build_assignment_task(
     if ctx.retry_feedback and assignment.agent != REVIEWER:
         parts.append(f"修改意见：\n{ctx.retry_feedback}")
 
+    if ctx.workspace_path:
+        parts.append(
+            f"工作区路径：{ctx.workspace_path}\n"
+            "（Coder 可直接读写该目录；TestRunner 在该目录运行 pytest）"
+        )
+
     if ctx.collaboration_mode == "blackboard":
         board = format_blackboard(ctx.workspace)
         if board:

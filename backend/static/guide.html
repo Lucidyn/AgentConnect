@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>使用指南 — Agent Connect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/app.css?v=4" />
+  <style>
+    body { padding-bottom: 3rem; }
+    .guide-wrap {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+    .guide-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .guide-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.45rem 0.85rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.82rem;
+      transition: background 0.2s;
+    }
+    .guide-back:hover { background: var(--surface-hover); }
+    .guide-hero {
+      padding: 1.75rem;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(124, 131, 255, 0.2);
+      background: linear-gradient(135deg, rgba(124, 131, 255, 0.12), rgba(59, 130, 246, 0.06));
+      margin-bottom: 2rem;
+    }
+    .guide-hero h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+    .guide-hero p {
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 0.95rem;
+    }
+    .guide-section {
+      margin-bottom: 2rem;
+    }
+    .guide-section h2 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 0.85rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .guide-steps {
+      display: grid;
+      gap: 0.75rem;
+    }
+    .guide-step {
+      display: flex;
+      gap: 1rem;
+      padding: 1rem 1.1rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .guide-step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), #5b21b6);
+      color: #fff;
+      font-size: 0.8rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .guide-step h3 {
+      font-size: 0.92rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+    .guide-step p {
+      font-size: 0.85rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .guide-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.75rem;
+    }
+    .guide-card {
+      padding: 1rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .guide-card h3 {
+      font-size: 0.88rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+    .guide-card p {
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .guide-list {
+      list-style: none;
+      padding: 0;
+    }
+    .guide-list li {
+      position: relative;
+      padding: 0.45rem 0 0.45rem 1.25rem;
+      font-size: 0.88rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .guide-list li::before {
+      content: "→";
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+    }
+    .guide-list strong { color: var(--text); }
+    code {
+      font-size: 0.82em;
+      padding: 0.12rem 0.35rem;
+      border-radius: 4px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+  <div class="guide-wrap">
+    <div class="guide-top">
+      <a href="/" class="guide-back">← 返回首页</a>
+      <a href="/guide" class="header-guide-link">使用指南</a>
+    </div>
+
+    <div class="guide-hero">
+      <h1>Agent Connect 使用指南</h1>
+      <p>多智能体协作平台 — 输入自然语言任务，由 Planner 自动拆解 DAG，Research / Coder / Writer 等 Agent 并行协作，最终在右侧面板查看结果与 Token 用量。</p>
+    </div>
+
+    <section class="guide-section">
+      <h2>快速开始</h2>
+      <div class="guide-steps">
+        <div class="guide-step">
+          <div class="guide-step-num">1</div>
+          <div>
+            <h3>选择模板（可选）</h3>
+            <p>在「运行」页顶部下拉框选择预设流水线，例如「调研+写作+翻译」；留空则由 Planner 自动规划。</p>
+          </div>
+        </div>
+        <div class="guide-step">
+          <div class="guide-step-num">2</div>
+          <div>
+            <h3>输入任务并提交</h3>
+            <p>在输入框描述你的目标，按 Enter 或点击「提交任务」。也可使用右侧「快速任务」一键填充示例。</p>
+          </div>
+        </div>
+        <div class="guide-step">
+          <div class="guide-step-num">3</div>
+          <div>
+            <h3>跟踪进度与结果</h3>
+            <p>右侧「任务时间线」实时更新；「任务结果」展示汇总、分步产出与 Token 用量；需要时可下载 artifact 文件。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="guide-section">
+      <h2>三个主要页面</h2>
+      <div class="guide-grid">
+        <div class="guide-card">
+          <h3>运行</h3>
+          <p>提交任务、查看 DAG 拓扑与 Agent 消息流。适合日常使用与演示。</p>
+        </div>
+        <div class="guide-card">
+          <h3>编排 (DAG)</h3>
+          <p>可视化拖拽 Agent 节点、设置依赖与人工审批门，保存为自定义模板后提交。</p>
+        </div>
+        <div class="guide-card">
+          <h3>管理</h3>
+          <p>Admin 角色可创建 API Key，分配 viewer / operator / admin 权限给团队成员。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="guide-section">
+      <h2>工作区路径（改现有项目 / 从零新建）</h2>
+      <div class="guide-steps">
+        <div class="guide-step">
+          <div class="guide-step-num">1</div>
+          <div>
+            <h3>填写目录</h3>
+            <p>在「运行」页「工作区路径」输入本机项目目录，例如 <code>/Users/you/projects/my-app</code> 或相对路径 <code>./my-new-service</code>。留空则只在对话里生成代码，不写磁盘。</p>
+          </div>
+        </div>
+        <div class="guide-step">
+          <div class="guide-step-num">2</div>
+          <div>
+            <h3>选择「编码开发」模板</h3>
+            <p>Coder 会读取目录树与关键文件，并按 <code>```python path/to/file.py</code> 格式写回文件；TestRunner 会在该目录根下执行 <code>pytest -q .</code>。</p>
+          </div>
+        </div>
+        <div class="guide-step">
+          <div class="guide-step-num">3</div>
+          <div>
+            <h3>安全边界</h3>
+            <p>路径必须在允许根目录内（默认：本仓库根 + 当前工作目录）。可在 <code>.env</code> 配置 <code>WORKSPACE_ALLOWED_ROOTS</code>。新建目录需 <code>WORKSPACE_CREATE_IF_MISSING=true</code>。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="guide-section">
+      <h2>常用功能</h2>
+      <ul class="guide-list">
+        <li><strong>API Key</strong>：右上角填写 Key 后，所有请求自动携带 <code>X-API-Key</code> 头。</li>
+        <li><strong>人工审批</strong>：审查未通过时，右侧会出现审批框，可选择通过、退回修改或终止。</li>
+        <li><strong>检查点 / 续跑</strong>：任务失败或完成后，可从检查点重放或从断点续跑。</li>
+        <li><strong>Token 用量</strong>：任务完成后在「任务结果」上方显示累计 Token 与估算费用。</li>
+        <li><strong>快速任务</strong>：右侧预设按钮可一键填充常见场景（YOLO 服务、行业报告等）。</li>
+      </ul>
+    </section>
+
+    <section class="guide-section">
+      <h2>内置 Agent 职责</h2>
+      <div class="guide-grid">
+        <div class="guide-card"><h3>Planner</h3><p>任务拆解与 DAG 调度</p></div>
+        <div class="guide-card"><h3>Research</h3><p>调研、Arxiv/GitHub 工具检索</p></div>
+        <div class="guide-card"><h3>Coder</h3><p>代码实现与 API 开发</p></div>
+        <div class="guide-card"><h3>Writer</h3><p>文案、文档与报告撰写</p></div>
+        <div class="guide-card"><h3>Analyst</h3><p>数据分析与竞品对比</p></div>
+        <div class="guide-card"><h3>Reviewer</h3><p>质量审查与反馈</p></div>
+      </div>
+    </section>
+
+    <section class="guide-section">
+      <h2>API 与开发</h2>
+      <ul class="guide-list">
+        <li>REST API 文档：<a href="/docs" style="color:var(--accent-hover)">/docs</a>（OpenAPI Swagger）</li>
+        <li>健康检查：<code>GET /health</code></li>
+        <li>提交任务：<code>POST /tasks</code>，body 含 <code>input</code> 与可选 <code>template_id</code></li>
+        <li>任务流：<code>GET /tasks/{id}/stream</code>（SSE 实时状态）</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

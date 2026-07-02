@@ -371,9 +371,12 @@ async def submit_task(
             custom_plan=req.custom_plan,
             collaboration_mode=req.collaboration_mode,
             negotiation=req.negotiation,
+            workspace_path=req.workspace_path,
+            workspace_write_enabled=req.workspace_write_enabled,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=402, detail=str(exc)) from exc
+        status = 400 if "工作区" in str(exc) or "workspace" in str(exc).lower() else 402
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
     queue = await platform.task_store.get_queue_info(task.id)
     return TaskResponse(
         task_id=task.id,

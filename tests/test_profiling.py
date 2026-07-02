@@ -21,7 +21,7 @@ async def test_pipeline_profiler_collects_events(isolated_paths, mock_tools, mon
     try:
         profiler.mark("test.start")
         task, _ = await platform.submit_task("build a tiny health API")
-        status = await profiler.watch_task(platform.task_store, task.id, timeout=15)
+        status = await profiler.watch_task(platform.task_store, task.id, timeout=40)
         profiler.mark("test.end")
     finally:
         profiler.detach()

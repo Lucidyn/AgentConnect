@@ -163,6 +163,12 @@ HTTP_TOOL_BASE_URL=
 # 协商（高级，默认关闭）
 NEGOTIATION_MAX_ROUNDS=2
 
+# 工作区（本地目录读写 + pytest）
+WORKSPACE_ENABLED=true
+WORKSPACE_ALLOWED_ROOTS=          # 逗号分隔；留空 = 仓库根 + 当前 cwd
+WORKSPACE_CREATE_IF_MISSING=true
+WORKSPACE_WRITE_ENABLED=true
+
 # Phase 3 — 分布式 Worker + 水平扩展
 DISTRIBUTED_WORKERS=false
 DATABASE_URL=              # postgresql://... 启用共享 Postgres（多副本）
@@ -176,7 +182,7 @@ WORKER_MODE=false
 
 | 端点 | 说明 |
 |------|------|
-| `POST /tasks` | 提交任务（`template_id` / `custom_plan`） |
+| `POST /tasks` | 提交任务（`template_id` / `custom_plan` / 可选 `workspace_path`） |
 | `GET /tasks` | 任务列表 |
 | `GET /tasks/{id}` | 任务详情 |
 | `GET /tasks/{id}/usage` | LLM Token 用量与估算成本 |
@@ -198,6 +204,7 @@ WORKER_MODE=false
 | `GET /agents` | Agent 列表 |
 | `GET /agents/discover?q=` | Agent 发现 |
 | `GET /tools` | MCP 工具列表 |
+| `GET /workspace/validate?path=` | 校验工作区路径是否在允许根目录内 |
 | `GET /plugins/validate` | 校验 `manifest.yaml` 插件条目 |
 | `GET /metrics` | Prometheus |
 | `GET /traces/{trace_id}` | Trace 链路 |
