@@ -20,6 +20,16 @@ class ValidatePlanRequest(BaseModel):
     custom_plan: dict
 
 
+class SaveTemplateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    description: str = Field(default="", max_length=240)
+    custom_plan: dict
+
+
+class ResumeTaskRequest(BaseModel):
+    from_assignment: str = Field(default="", max_length=64)
+
+
 class TaskResponse(BaseModel):
     task_id: str
     message_id: str

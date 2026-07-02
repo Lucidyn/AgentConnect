@@ -15,6 +15,7 @@ from backend.constants import (
     VISION,
     WRITER,
 )
+from backend.core.llm_usage import LLMUsageEntry
 from backend.models.plan import TaskAssignment, TaskPlan
 
 
@@ -69,6 +70,8 @@ class TaskContext(BaseModel):
     retry_feedback: str = ""
     loops: dict[str, LoopState] = {}
     workspace: WorkspaceState = WorkspaceState()
+    llm_usage: list[LLMUsageEntry] = Field(default_factory=list)
+    assignment_started_at: dict[str, str] = Field(default_factory=dict)
 
     def record_result(self, assignment: TaskAssignment, content: str) -> None:
         """Store assignment output and sync legacy named fields."""

@@ -11,6 +11,10 @@ from backend.models.task import TaskRecord, TaskStatus
 
 logger = logging.getLogger(__name__)
 
+_TERMINAL_STATUSES = frozenset(
+    {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
+)
+
 
 class TaskQueue:
     def __init__(self, store: TaskStore) -> None:
@@ -49,6 +53,18 @@ class TaskQueue:
 
     async def on_task_finished(self, task_id: str) -> TaskRecord | None:
         """Start next queued task after one completes. Returns started task if any."""
+        finished = await self._store.get(task_id)
+        if not finished or finished.status not in _TERMINAL_STATUSES:
+            logger.debug(
+                "Skip queue dequeue for task %s (status=%s)",
+                task_id,
+                finished.status if finished else None,
+            )
+            return None
+        if await self._store.count_queued() == 0:
+            return None
+        if await self._store.count_active() >= self._max:
+            return None
         next_task = await self._store.dequeue()
         if not next_task:
             return None

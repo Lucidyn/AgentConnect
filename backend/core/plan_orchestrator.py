@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from backend.config import settings
@@ -98,6 +99,8 @@ class PlanOrchestrator:
                     "attempt": assignment.attempt,
                 },
             )
+        ctx.assignment_started_at[assignment.id] = datetime.now(timezone.utc).isoformat()
+        await self.save_ctx(ctx)
 
     async def dispatch_ready(self, plan: TaskPlan, ctx: TaskContext) -> int:
         count = 0

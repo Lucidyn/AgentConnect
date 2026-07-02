@@ -9,6 +9,8 @@ from backend.config import settings
 from backend.core.agent import Agent
 from backend.core.llm import LLMClient
 from backend.core.message_bus import InMemoryMessageBus
+from backend.core.db import create_database
+from backend.core.db.schema import init_schema
 from backend.core.registry import AgentRegistry
 from backend.core.runtime import get_runtime
 from backend.core.services import AgentServices
@@ -28,11 +30,16 @@ class WorkerPlatform:
         self._running = False
         self._consumer = default_consumer_name()
         self._hub = None
+        self._database = None
         self._task_store = TaskStore()
         self._registry = AgentRegistry()
         self._bus = InMemoryMessageBus()
 
     async def start(self) -> None:
+        self._database = await create_database()
+        await init_schema(self._database)
+        self._task_store = TaskStore(self._database)
+        self._registry = AgentRegistry(self._database)
         await self._task_store.connect()
         await self._registry.connect()
         await self._bus.connect()
@@ -71,6 +78,9 @@ class WorkerPlatform:
             await self._hub.disconnect()
         await self._bus.disconnect()
         await self._registry.disconnect()
+        if self._database:
+            await self._database.disconnect()
+            self._database = None
         await self._task_store.disconnect()
 
     async def run_loop(self) -> None:

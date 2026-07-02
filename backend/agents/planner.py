@@ -22,7 +22,25 @@ from backend.models.task_context import TaskContext
 logger = logging.getLogger(__name__)
 
 
+def _agent_names_from_catalog(catalog: str) -> list[str]:
+    names: list[str] = []
+    for line in catalog.splitlines():
+        if not line.startswith("- "):
+            continue
+        name = line[2:].split(" (", 1)[0].strip()
+        if name:
+            names.append(name)
+    return names
+
+
 def _build_system_prompt(agent_catalog: str) -> str:
+    names = _agent_names_from_catalog(agent_catalog)
+    parallel = names[:2] if len(names) >= 2 else ["Research", "Analyst"]
+    merge = next(
+        (n for n in names if n in ("Coder", "Writer", "Reviewer")),
+        names[-1] if names else "Reviewer",
+    )
+    a1, a2 = parallel[0], parallel[1]
     fast_rules = ""
     if settings.fast_mode:
         fast_rules = """
@@ -49,9 +67,9 @@ def _build_system_prompt(agent_catalog: str) -> str:
   "summary": "计划概述",
   "steps": ["步骤1", "步骤2"],
   "assignments": [
-    {{"id": "t1", "agent": "Research", "task": "具体任务", "depends_on": []}},
-    {{"id": "t2", "agent": "Vision", "task": "具体任务", "depends_on": []}},
-    {{"id": "t3", "agent": "Coder", "task": "具体任务", "depends_on": ["t1", "t2"]}}
+    {{"id": "t1", "agent": "{a1}", "task": "具体任务", "depends_on": []}},
+    {{"id": "t2", "agent": "{a2}", "task": "具体任务", "depends_on": []}},
+    {{"id": "t3", "agent": "{merge}", "task": "具体任务", "depends_on": ["t1", "t2"]}}
   ]
 }}
 
@@ -85,6 +103,11 @@ class PlannerAgent(Agent):
         if message.from_agent == "User":
             if message.content.startswith("approval:"):
                 return None
+            resume_from = message.metadata.get("resume_from", "")
+            if message.content == "resume" or resume_from:
+                existing = await self._load_plan()
+                if existing:
+                    return await self._resume_plan(existing, from_assignment=resume_from)
             existing = await self._load_plan()
             if existing and not existing.all_done() and not existing.has_failed():
                 return await self._resume_plan(existing)
@@ -150,19 +173,29 @@ class PlannerAgent(Agent):
             f"共 {len(plan.assignments)} 个子任务，已调度 {dispatched} 个。"
         )
 
-    async def _resume_plan(self, plan: TaskPlan) -> str:
+    async def _resume_plan(self, plan: TaskPlan, from_assignment: str = "") -> str:
         if self.task_store:
             await self.task_store.update_status(self._current_task_id, TaskStatus.RUNNING)
 
         ctx = await self._load_ctx()
-        plan.reset_running_to_pending()
+        if from_assignment:
+            plan.reset_from_assignment(from_assignment)
+        else:
+            plan.reset_running_to_pending()
+            plan.reset_failed_to_pending()
+
         dispatched = await self._orchestrator.dispatch_ready(plan, ctx)
         await self._persist_plan(plan)
 
+        label = f"从 {from_assignment} 续跑" if from_assignment else "任务已恢复"
         return (
-            f"任务已恢复：{plan.summary}\n"
+            f"{label}：{plan.summary}\n"
             f"已重新调度 {dispatched} 个子任务。"
         )
+
+    async def _record_llm_usage(self, entry) -> None:
+        if self.services.record_llm_usage and self._current_task_id:
+            await self.services.record_llm_usage(self._current_task_id, self.name, entry)
 
     async def _fail_task(self, error: str) -> None:
         if self.task_store:
@@ -184,11 +217,6 @@ class PlannerAgent(Agent):
         if ctx.template_id:
             template = get_template(ctx.template_id)
             if template:
-                if not ctx.collaboration_mode or ctx.collaboration_mode == "planner":
-                    ctx.collaboration_mode = template.collaboration_mode
-                if not ctx.negotiation:
-                    ctx.negotiation = template.negotiation
-                await self._save_ctx(ctx)
                 plan = template.to_plan(user_task, self.registry)
                 logger.info("Using template %s with %d assignments", ctx.template_id, len(plan.assignments))
                 return plan
@@ -206,11 +234,13 @@ class PlannerAgent(Agent):
             logger.info("Fast mode: using rule-based plan without Planner LLM")
             return self._parse_plan(json.dumps(fallback, ensure_ascii=False), user_task, fallback)
 
-        raw = await self.llm.chat(
+        raw = await self.llm.chat_json(
             _build_system_prompt(catalog),
             f"用户任务：{user_task}{discovery_hint}",
             json.dumps(fallback, ensure_ascii=False),
             role="planner",
+            agent=self.name,
+            on_usage=self._record_llm_usage,
         )
         return self._parse_plan(raw, user_task, fallback)
 

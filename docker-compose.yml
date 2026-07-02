@@ -1,3 +1,21 @@
+x-worker-env: &worker_env
+  REDIS_URL: redis://redis:6379/0
+  USE_REDIS: "true"
+  DATABASE_URL: postgresql://agent:agent@postgres:5432/agentconnect
+  WORKER_MODE: "true"
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+x-worker-base: &worker_base
+  build: .
+  depends_on:
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+  volumes:
+    - app_data:/app/data
+  command: python -m backend.worker.run
+
 services:
   redis:
     image: redis:7-alpine
@@ -35,7 +53,7 @@ services:
       - USE_REDIS=true
       - DATABASE_URL=postgresql://agent:agent@postgres:5432/agentconnect
       - DISTRIBUTED_WORKERS=true
-      - WORKER_AGENTS=Research,Coder,Writer,Analyst,Translator,Reviewer,TestRunner
+      - WORKER_AGENTS=Research,Coder,Writer,Analyst,Translator,Reviewer,TestRunner,Vision
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - API_KEY=${API_KEY:-}
@@ -71,7 +89,7 @@ services:
       - USE_REDIS=true
       - DATABASE_URL=postgresql://agent:agent@postgres:5432/agentconnect
       - DISTRIBUTED_WORKERS=true
-      - WORKER_AGENTS=Research,Coder,Writer,Analyst,Translator,Reviewer,TestRunner
+      - WORKER_AGENTS=Research,Coder,Writer,Analyst,Translator,Reviewer,TestRunner,Vision
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
       - API_KEY=${API_KEY:-}
@@ -91,49 +109,75 @@ services:
         condition: service_healthy
 
   worker-research:
-    build: .
+    <<: *worker_base
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - USE_REDIS=true
-      - WORKER_MODE=true
-      - WORKER_AGENT_NAME=Research
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-    depends_on:
-      redis:
-        condition: service_healthy
-    volumes:
-      - app_data:/app/data
-    command: python -m backend.worker.run
+      <<: *worker_env
+      WORKER_AGENT_NAME: Research
 
   worker-coder:
-    build: .
+    <<: *worker_base
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - USE_REDIS=true
-      - WORKER_MODE=true
-      - WORKER_AGENT_NAME=Coder
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-    depends_on:
-      redis:
-        condition: service_healthy
-    volumes:
-      - app_data:/app/data
-    command: python -m backend.worker.run
+      <<: *worker_env
+      WORKER_AGENT_NAME: Coder
 
   worker-reviewer:
-    build: .
+    <<: *worker_base
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - USE_REDIS=true
-      - WORKER_MODE=true
-      - WORKER_AGENT_NAME=Reviewer
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-    depends_on:
-      redis:
-        condition: service_healthy
+      <<: *worker_env
+      WORKER_AGENT_NAME: Reviewer
+
+  worker-writer:
+    <<: *worker_base
+    environment:
+      <<: *worker_env
+      WORKER_AGENT_NAME: Writer
+
+  worker-analyst:
+    <<: *worker_base
+    environment:
+      <<: *worker_env
+      WORKER_AGENT_NAME: Analyst
+
+  worker-translator:
+    <<: *worker_base
+    environment:
+      <<: *worker_env
+      WORKER_AGENT_NAME: Translator
+
+  worker-test_runner:
+    <<: *worker_base
+    environment:
+      <<: *worker_env
+      WORKER_AGENT_NAME: TestRunner
+
+  worker-vision:
+    <<: *worker_base
+    environment:
+      <<: *worker_env
+      WORKER_AGENT_NAME: Vision
+
+  prometheus:
+    image: prom/prometheus:v2.54.0
     volumes:
-      - app_data:/app/data
-    command: python -m backend.worker.run
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/agent-connect-dashboard.json:/var/lib/grafana/dashboards/agent-connect.json:ro
+    depends_on:
+      - prometheus
 
 volumes:
   redis_data:

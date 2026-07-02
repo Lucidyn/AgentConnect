@@ -102,6 +102,34 @@ CREATE TABLE IF NOT EXISTS message_outbox (
 );
 """
 
+AGENTS_DDL_SQLITE = """
+CREATE TABLE IF NOT EXISTS agents (
+    name TEXT PRIMARY KEY,
+    role TEXT NOT NULL,
+    capabilities TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    status TEXT DEFAULT 'idle',
+    registered_at TEXT NOT NULL,
+    inputs_json TEXT DEFAULT '[]',
+    outputs_json TEXT DEFAULT '[]',
+    accepts_json TEXT DEFAULT '[]'
+);
+"""
+
+AGENTS_DDL_POSTGRES = """
+CREATE TABLE IF NOT EXISTS agents (
+    name TEXT PRIMARY KEY,
+    role TEXT NOT NULL,
+    capabilities TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    status TEXT DEFAULT 'idle',
+    registered_at TIMESTAMPTZ NOT NULL,
+    inputs_json TEXT DEFAULT '[]',
+    outputs_json TEXT DEFAULT '[]',
+    accepts_json TEXT DEFAULT '[]'
+);
+"""
+
 
 async def init_schema(db: Database) -> None:
     if db.is_postgres:
@@ -109,6 +137,7 @@ async def init_schema(db: Database) -> None:
         await db.execute(MESSAGES_DDL_POSTGRES)
         await db.execute(ARTIFACTS_DDL_POSTGRES)
         await db.execute(OUTBOX_DDL_POSTGRES)
+        await db.execute(AGENTS_DDL_POSTGRES)
         await db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency "
             "ON tasks(idempotency_key) WHERE idempotency_key IS NOT NULL"
@@ -119,6 +148,7 @@ async def init_schema(db: Database) -> None:
         await db.execute(MESSAGES_DDL_SQLITE)
         await db.execute(ARTIFACTS_DDL_SQLITE)
         await db.execute(OUTBOX_DDL_SQLITE)
+        await db.execute(AGENTS_DDL_SQLITE)
         rows = await db.fetchall("PRAGMA table_info(tasks)")
         columns = {row[1] for row in rows}
         if "owner_replica" not in columns:

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from backend.config import settings
 from backend.constants import PLANNER
+from backend.core.negotiation import negotiation_metadata_for_dispatch
 from backend.core.worker_stream import WorkerStreamHub, envelope_from_assignment
 from backend.models.message import MessageIntent, MessageType
 from backend.models.plan import TaskAssignment, TaskPlan
@@ -47,6 +48,7 @@ class WorkerDispatcher:
             "assignment_id": assignment.id,
             "attempt": assignment.attempt,
         }
+        metadata.update(negotiation_metadata_for_dispatch(ctx))
         if self.is_remote(assignment.agent):
             assert self._hub is not None
             envelope = envelope_from_assignment(

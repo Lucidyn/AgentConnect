@@ -2,7 +2,9 @@
 
 **Multi-Agent Collaboration Platform** — 多智能体协作平台 v1.0
 
-可演示、可扩展的单节点多 Agent 编排系统。Agent 通过 Message Bus 异步通信；支持 DAG 计划、模板流水线、可视化编排、黑板协作与协商协议。
+可演示、可扩展的单节点多 Agent 编排系统。Agent 通过 Message Bus 异步通信；支持 DAG 计划、模板流水线与可视化编排。
+
+**三步使用**：选模板（可选）→ 输入任务 → 提交。
 
 ```
                     User
@@ -43,7 +45,14 @@ Docker：
 
 ```bash
 docker compose up --build
-# nginx :8000 → api + api-replica-2，Postgres 共享任务库，Redis + workers
+# nginx :8000 → api + replicas + workers + postgres + redis
+# Prometheus :9090 · Grafana :3000 (admin/admin)
+```
+
+前端模块化构建（可选）：
+
+```bash
+cd frontend && npm install --cache ./.npm-cache && npm run build
 ```
 
 ## 内置 Agent
@@ -59,7 +68,7 @@ docker compose up --build
 | TestRunner | 轻量测试 |
 | Reviewer | 质量审查 |
 
-插件：`plugins/manifest.yaml`（Vision、OpenAI Agents、LangGraph 示例默认关闭）。
+插件：`plugins/manifest.yaml`（Vision 默认启用；Router/Summarizer 可选 runtime 插件）。
 
 ## 编排能力
 
@@ -86,22 +95,15 @@ curl -X POST http://localhost:8000/tasks \
 
 ### 3. 可视化 DAG 编排
 
-前端 **编排 (DAG)** 页：拖拽节点、端口连线、并行分叉/汇聚、导入导出 JSON。
+前端 **编排 (DAG)** 页：拖拽节点、端口连线、校验后提交；可保存/载入自定义模板。
 
-### 4. 黑板协作 + 协商
+### 4. 运维能力
 
-```json
-{
-  "task": "写报告",
-  "custom_plan": { "assignments": [...] },
-  "collaboration_mode": "blackboard",
-  "negotiation": true
-}
-```
+- Token 用量：`GET /tasks/{id}/usage`
+- 任务续跑：`POST /tasks/{id}/resume`（可选 `from_assignment`）
+- 时间线耗时：`GET /tasks/{id}/timeline`（含 `duration_ms`）
 
-协商协议：开放问题 → 上游 Agent 答复 → 写入黑板（见 Phase 3 文档）。
-
-Docker Compose（生产式栈：Postgres + 双 API 副本 + nginx + 分布式 Worker）：
+## 分布式部署
 
 ```bash
 docker compose up --build
@@ -126,7 +128,7 @@ LLM_PROVIDER=openai          # openai | openai_compatible | anthropic
 OPENAI_API_KEY=
 LLM_TIMEOUT_SECONDS=120
 
-# 鉴权 — 设置后所有任务/消息/模板 API 需 X-API-Key（前端右上角可填）
+# 鉴权 — 设置后任务/Agent/工具/指标等 API 需 X-API-Key（/health 保持公开）
 API_KEY=
 
 # 任务队列
@@ -136,9 +138,16 @@ MESSAGE_RELIABILITY=true
 # Fast mode（少调 LLM、短上下文）
 FAST_MODE=false
 FAST_SKIP_PLANNER_LLM=false
-ASSIGNMENT_CONTEXT_MAX_CHARS=2000
+ASSIGNMENT_CONTEXT_MAX_CHARS=4000
+LLM_STREAMING=true
 
-# 协商
+# HTTP 工具插件（MCP 风格）
+HTTP_TOOL_BASE_URL=
+
+# OpenTelemetry（可选，见 requirements-optional.txt）
+# OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces
+
+# 协商（高级，默认关闭）
 NEGOTIATION_MAX_ROUNDS=2
 
 # Phase 3 — 分布式 Worker + 水平扩展
@@ -154,22 +163,29 @@ WORKER_MODE=false
 
 | 端点 | 说明 |
 |------|------|
-| `POST /tasks` | 提交任务（`template_id` / `custom_plan` / `collaboration_mode`） |
+| `POST /tasks` | 提交任务（`template_id` / `custom_plan`） |
 | `GET /tasks` | 任务列表 |
 | `GET /tasks/{id}` | 任务详情 |
-| `GET /tasks/{id}/workspace` | 黑板 + 计划快照 |
-| `GET /tasks/{id}/timeline` | 时间线 |
+| `GET /tasks/{id}/usage` | LLM Token 用量与估算成本 |
+| `GET /tasks/{id}/workspace` | 计划快照与分步产出 |
+| `GET /tasks/{id}/timeline` | 时间线（含耗时） |
 | `GET /tasks/{id}/stream` | SSE 状态流 |
 | `GET /tasks/{id}/messages` | 任务消息 |
 | `GET /tasks/{id}/artifacts` | 产物 |
+| `GET /tasks/{id}/artifacts/{artifact_id}/download` | 下载产物 |
+| `POST /tasks/{id}/resume` | 续跑失败/中断任务 |
 | `POST /tasks/{id}/approve` | 人工审批 `approve` / `retry` / `reject` |
 | `POST /tasks/{id}/cancel` | 取消任务 |
-| `GET /templates` | 计划模板列表 |
+| `GET /templates` | 计划模板列表（内置 + 已保存） |
 | `GET /templates/{id}` | 模板详情 |
+| `POST /templates/saved` | 保存用户模板 |
+| `DELETE /templates/saved/{id}` | 删除用户模板 |
 | `POST /templates/validate` | 校验自定义 DAG |
 | `POST /templates/preview` | 预览 DAG JSON |
 | `GET /agents` | Agent 列表 |
 | `GET /agents/discover?q=` | Agent 发现 |
+| `GET /tools` | MCP 工具列表 |
+| `GET /plugins/validate` | 校验 `manifest.yaml` 插件条目 |
 | `GET /metrics` | Prometheus |
 | `GET /traces/{trace_id}` | Trace 链路 |
 | `GET /health` | 健康检查 |
@@ -196,16 +212,15 @@ agent_connect/
 │   ├── core/             # Bus、编排、LLM、DB、Worker
 │   ├── worker/           # 分布式 Worker 进程入口
 │   └── static/           # Web UI + compose.js
-├── deploy/               # nginx 负载均衡配置
+├── frontend/           # Vite 模块化 UI 源码 → backend/static/assets/
+├── deploy/               # nginx + Prometheus + Grafana 配置
 ├── plugins/
 │   ├── manifest.yaml
 │   └── plan_templates.yaml
 ├── docs/
 │   └── phase3-architecture.md
-└── tests/              # 本地测试（不纳入 Git 远程仓库）
+└── tests/              # 单元与集成测试（CI 默认跑非 integration 子集）
 ```
-
-本地测试目录 `tests/` 已加入 `.gitignore`，仅在开发机运行，不推送到 GitHub。
 
 ## 演进路线
 
@@ -228,7 +243,7 @@ agent_connect/
 - **分布式 Worker**：`DISTRIBUTED_WORKERS` + Redis Stream 任务分发
 - **Worker 进程**：`python -m backend.worker.run`（`WORKER_AGENT_NAME` 指定 Agent）
 - **结果回传**：Worker → `ac:results` → API 注入 Planner
-- **Docker Compose**：`worker-research` / `worker-coder` / `worker-reviewer` 服务
+- **Docker Compose**：`worker-research` / `worker-coder` / `worker-reviewer` / `worker-writer` / `worker-analyst` / `worker-translator` / `worker-test_runner` 服务
 - **健康检查**：`/health` 返回 `distributed_workers` 与 `remote_agents`
 
 ### v0.8 新增
@@ -246,22 +261,20 @@ agent_connect/
 - **LLM**: OpenAI / Anthropic / 兼容 API（规则 fallback）
 - **通信**: Redis Pub/Sub 或 In-Memory + SQLite/Postgres Outbox
 - **API**: FastAPI + WebSocket + SSE
-- **存储**: SQLite（本地）或 Postgres（多副本）；Qdrant（共享记忆，可选）
+- **存储**: SQLite（本地）或 Postgres（多副本）；Qdrant（共享记忆，可选；多进程请设 `USE_QDRANT=false` 或独立 Qdrant 服务）
 - **部署**: Docker Compose（Postgres + nginx + workers）
 
-## 测试（仅本地）
-
-`tests/` 目录不推送到远程仓库，在本地运行：
+## 测试
 
 ```bash
 pip install -r requirements-dev.txt
-pytest tests/ -q
+pytest tests/ -q --ignore=tests/integration
 pytest tests/ -q --cov=backend --cov-report=term-missing
 pytest tests/ -q -m redis       # 需本地 Redis
 pytest tests/ -q -m postgres    # 需 DATABASE_URL 指向 Postgres
 ```
 
-GitHub Actions：import smoke + Docker build/health smoke（不含 pytest）。
+GitHub Actions：import smoke + pytest（默认跳过 `tests/integration`）+ Docker build/health smoke。
 
 ## 插件接入
 

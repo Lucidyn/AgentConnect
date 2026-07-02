@@ -4,8 +4,8 @@ templates:
   - id: research_write_translate
     name: 调研 + 写作 + 翻译
     description: 先调研，再写作，再翻译，最后审查
-    collaboration_mode: blackboard
-    negotiation: true
+    collaboration_mode: planner
+    negotiation: false
     summary: "将「{task}」拆解为调研→写作→翻译→审查"
     steps: [调研, 写作, 翻译, 审查]
     assignments:
@@ -33,8 +33,8 @@ templates:
   - id: hybrid_report
     name: 跨领域混合（调研→分析→写作→审查）
     description: Research → Analyst → Writer → Reviewer
-    collaboration_mode: blackboard
-    negotiation: true
+    collaboration_mode: planner
+    negotiation: false
     summary: "将「{task}」拆解为调研→分析→写作→审查"
     steps: [调研, 分析, 写作, 审查]
     assignments:
@@ -62,8 +62,8 @@ templates:
   - id: parallel_research
     name: 并行调研 + 汇聚写作
     description: Research 与 Analyst 并行，Writer 汇聚，Reviewer 审查
-    collaboration_mode: blackboard
-    negotiation: true
+    collaboration_mode: planner
+    negotiation: false
     summary: "将「{task}」拆解为并行调研/分析→写作→审查"
     steps: [并行调研, 并行分析, 写作, 审查]
     assignments:

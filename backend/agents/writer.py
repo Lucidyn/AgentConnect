@@ -32,7 +32,14 @@ class WriterAgent(Agent):
 
         fallback = self._mock_draft(task)
         user_prompt = task if not context_parts else f"{task}\n\n" + "\n\n".join(context_parts)
-        result = await self.llm.chat(SYSTEM_PROMPT, user_prompt, fallback, role=self.role)
+        result = await self.llm_chat(
+            SYSTEM_PROMPT,
+            user_prompt,
+            fallback,
+            role=self.role,
+            stream=True,
+            message=message,
+        )
 
         await self.shared_memory.store(
             content=result,

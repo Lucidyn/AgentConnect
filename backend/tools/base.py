@@ -13,5 +13,8 @@ class Tool(ABC):
     name: str
     description: str
 
+    def configure(self, config: dict) -> None:
+        """Optional manifest-driven configuration."""
+
     @abstractmethod
     async def run(self, query: str) -> ToolResult: ...

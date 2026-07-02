@@ -109,6 +109,31 @@ class TaskPlan(BaseModel):
                     changed = True
         return downstream
 
+    def reset_from_assignment(self, assignment_id: str, *, cascade: bool = True) -> list[str]:
+        """Reset an assignment (and optionally downstream) to pending for resume."""
+        reset_ids: list[str] = []
+        target = self.find_assignment(assignment_id=assignment_id)
+        if not target:
+            return reset_ids
+
+        ids_to_reset = {assignment_id}
+        if cascade:
+            ids_to_reset |= self.downstream_ids(assignment_id)
+
+        for assignment in self.assignments:
+            if assignment.id in ids_to_reset and assignment.status != AssignmentStatus.PENDING:
+                assignment.status = AssignmentStatus.PENDING
+                reset_ids.append(assignment.id)
+        return reset_ids
+
+    def reset_failed_to_pending(self) -> int:
+        count = 0
+        for assignment in self.assignments:
+            if assignment.status == AssignmentStatus.FAILED:
+                assignment.status = AssignmentStatus.PENDING
+                count += 1
+        return count
+
     def reset_to_pending(self, assignment_id: str, *, cascade: bool = True) -> list[str]:
         """Reset an assignment (and optionally its downstream) back to pending."""
         reset_ids: list[str] = []

@@ -67,6 +67,21 @@ docker compose up --build
 # nginx → api + api-replica-2 + workers + postgres + redis
 ```
 
+Workers share the same `DATABASE_URL` as API replicas (Postgres task/outbox store). Wrong-agent stream entries are ACK'd and requeued so they do not block PEL.
+
+### Shared memory / Qdrant
+
+Local Qdrant (`USE_QDRANT=true`, path `data/qdrant`) is suitable for **single-process** dev. Multiple API replicas or worker processes should either:
+
+- set `USE_QDRANT=false` (in-memory shared memory per process), or
+- run a dedicated Qdrant server and point all processes at it.
+
+### Observability
+
+Prometheus metrics: `GET /metrics` (requires `X-API-Key` when `API_KEY` is set).
+
+Sample Grafana dashboard: `deploy/grafana/agent-connect-dashboard.json` — import after scraping `/metrics`.
+
 ### Local dev without Redis
 
 Tests use a shared in-memory stream (`USE_REDIS=false` + `DISTRIBUTED_WORKERS=true`) in a single pytest process.

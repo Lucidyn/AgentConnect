@@ -80,7 +80,25 @@ def load_templates() -> dict[str, PlanTemplate]:
 
 
 def get_template(template_id: str) -> PlanTemplate | None:
-    return load_templates().get(template_id)
+    template = load_templates().get(template_id)
+    if template:
+        return template
+    from backend.core.saved_templates import get_saved
+
+    saved = get_saved(template_id)
+    if not saved:
+        return None
+    plan = saved.get("plan") or {}
+    return PlanTemplate(
+        id=saved.get("id", template_id),
+        name=saved.get("name", template_id),
+        description=saved.get("description", ""),
+        collaboration_mode="planner",
+        negotiation=False,
+        summary=plan.get("summary", ""),
+        steps=plan.get("steps", []),
+        assignments=plan.get("assignments", []),
+    )
 
 
 def list_templates() -> list[dict[str, Any]]:

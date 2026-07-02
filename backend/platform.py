@@ -25,6 +25,7 @@ from backend.core.metrics import (
     TASKS_FINISHED,
     TASKS_SUBMITTED,
 )
+from backend.core.stream_buffer import StreamBuffer
 from backend.core.registry import AgentRegistry
 from backend.core.runtime import get_runtime
 from backend.core.services import AgentServices
@@ -35,6 +36,8 @@ from backend.core.worker_dispatcher import WorkerDispatcher
 from backend.core.worker_stream import create_worker_stream, default_consumer_name, parse_remote_agents
 from backend.models.message import Message, MessageIntent, MessageType
 from backend.models.task import TaskRecord, TaskStatus
+from backend.models.task_context import TaskContext
+from backend.core.llm_usage import LLMUsageEntry
 from backend.plugins.loader import load_agent_plugins, load_tool_registry
 from backend.tools.registry import ToolRegistry
 
@@ -63,6 +66,7 @@ class Platform:
         self._remote_agents: set[str] = set()
         self._result_consumer = default_consumer_name()
         self._database = None
+        self.stream_buffer = StreamBuffer()
 
     @property
     def agent_runtimes(self) -> dict[str, str]:
@@ -77,7 +81,7 @@ class Platform:
         await init_schema(self._database)
         self.task_store = TaskStore(self._database)
         self.message_outbox = MessageOutbox(self._database)
-        self.registry = AgentRegistry()
+        self.registry = AgentRegistry(self._database)
         self.agents.clear()
         self._agent_runtimes.clear()
 
@@ -127,9 +131,11 @@ class Platform:
             tools=self.tools,
             task_store=self.task_store,
             on_task_finished=self._on_task_finished,
+            record_llm_usage=self._record_llm_usage,
             plugin_configs=plugin_configs,
             worker_hub=worker_hub,
             worker_dispatcher=worker_dispatcher,
+            stream_buffer=self.stream_buffer,
         )
 
         for cls in mount_classes:
@@ -277,6 +283,7 @@ class Platform:
             self._worker_hub = None
 
     async def _on_task_finished(self, task_id: str) -> None:
+        await self.stream_buffer.finish(task_id)
         if not self.task_queue or not self.bus:
             return
         next_task = await self.task_queue.on_task_finished(task_id)
@@ -314,6 +321,14 @@ class Platform:
             return self.bus.history  # type: ignore[union-attr]
         return self._message_log
 
+    async def _record_llm_usage(self, task_id: str, agent: str, entry: LLMUsageEntry) -> None:
+        task = await self.task_store.get(task_id)
+        if not task:
+            return
+        ctx = TaskContext.model_validate(task.context or {})
+        ctx.llm_usage.append(entry)
+        await self.task_store.save_context(task_id, ctx.model_dump(mode="json"))
+
     async def submit_task(
         self,
         user_input: str,
@@ -333,18 +348,16 @@ class Platform:
         ctx_updates: dict = {}
         if template_id:
             ctx_updates["template_id"] = template_id
-            from backend.core.plan_templates import get_template
-
-            template = get_template(template_id)
-            if template:
-                ctx_updates.setdefault("collaboration_mode", template.collaboration_mode)
-                ctx_updates.setdefault("negotiation", template.negotiation)
         if custom_plan:
             ctx_updates["custom_plan"] = custom_plan
         if collaboration_mode:
             ctx_updates["collaboration_mode"] = collaboration_mode
+        else:
+            ctx_updates.setdefault("collaboration_mode", "planner")
         if negotiation is not None:
             ctx_updates["negotiation"] = negotiation
+        else:
+            ctx_updates.setdefault("negotiation", False)
 
         if ctx_updates:
             ctx = dict(task.context or {})
@@ -392,6 +405,33 @@ class Platform:
                 "approval_action": action,
                 "assignment_id": ctx.get("approval_assignment_id", ""),
             },
+        ).with_trace()
+        await self.bus.publish(message)
+        await self.task_store.log_message(message)
+        return await self.task_store.get(task_id)
+
+    async def resume_task(
+        self, task_id: str, from_assignment: str = ""
+    ) -> TaskRecord | None:
+        task = await self.task_store.get(task_id)
+        if not task or not self.bus:
+            return None
+        if task.status not in (
+            TaskStatus.FAILED,
+            TaskStatus.RUNNING,
+            TaskStatus.PLANNING,
+            TaskStatus.WAITING_APPROVAL,
+        ):
+            return None
+
+        await self.task_store.update_status(task_id, TaskStatus.RUNNING)
+        message = Message(
+            from_agent="User",
+            to_agent=PLANNER,
+            content="resume",
+            message_type=MessageType.TASK,
+            task_id=task_id,
+            metadata={"resume_from": from_assignment} if from_assignment else {},
         ).with_trace()
         await self.bus.publish(message)
         await self.task_store.log_message(message)

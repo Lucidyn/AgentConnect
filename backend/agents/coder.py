@@ -42,11 +42,13 @@ class CoderAgent(Agent):
         context = "\n\n".join(context_parts)
 
         fallback = self._mock_code(task)
-        result = await self.llm.chat(
+        result = await self.llm_chat(
             SYSTEM_PROMPT,
             f"背景：\n{context}\n\n编码任务：{task}" if context else f"编码任务：{task}",
             fallback,
             role=self.role,
+            stream=True,
+            message=message,
         )
         result = self._ensure_health_endpoint(result)
 

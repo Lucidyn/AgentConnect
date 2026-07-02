@@ -12,6 +12,9 @@ class VisionAgent(Agent):
     role = "vision"
     capabilities = ["image_analysis", "ocr", "object_detection"]
     description = "图像分析与 OCR 示例插件"
+    inputs = ["image_url", "image_bytes"]
+    outputs = ["vision_report", "detection_result"]
+    accepts = ["assignment_start"]
 
     async def think(self, message: Message) -> str | None:
         if message.message_type not in (MessageType.TASK, MessageType.RESPONSE):

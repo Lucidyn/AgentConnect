@@ -10,14 +10,21 @@ from backend.platform import platform
 router = APIRouter(tags=["system"])
 
 
-@router.get("/runtimes")
+@router.get("/runtimes", dependencies=[Depends(verify_api_key)])
 async def get_runtimes():
     return {"runtimes": list_runtimes()}
 
 
-@router.get("/tools")
+@router.get("/tools", dependencies=[Depends(verify_api_key)])
 async def list_tools():
     return {"tools": platform.tools.list_tools()}
+
+
+@router.get("/plugins/validate", dependencies=[Depends(verify_api_key)])
+async def validate_plugins():
+    from backend.plugins.validate import validate_manifest
+
+    return validate_manifest()
 
 
 @router.post("/memory/query", dependencies=[Depends(verify_api_key)])

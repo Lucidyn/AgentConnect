@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import Response
 
 from backend.api.deps import clamp_limit
-from backend.api.schemas import ApprovalRequest, TaskRequest, TaskResponse
+from backend.api.schemas import ApprovalRequest, ResumeTaskRequest, TaskRequest, TaskResponse
 from backend.auth import verify_api_key
+from backend.config import settings
+from backend.core.llm_usage import estimate_cost, merge_usage
 from backend.models.task import TaskStatus
+from backend.models.task_context import TaskContext
 from backend.platform import platform
 
 router = APIRouter(prefix="/tasks", tags=["tasks"], dependencies=[Depends(verify_api_key)])
@@ -118,29 +123,103 @@ async def get_task_artifacts(task_id: str):
     return {"task_id": task_id, "artifacts": [a.model_dump(mode="json") for a in artifacts]}
 
 
+@router.get("/{task_id}/artifacts/{artifact_id}/download")
+async def download_task_artifact(task_id: str, artifact_id: str):
+    artifact = await platform.task_store.get_artifact(artifact_id)
+    if not artifact or artifact.task_id != task_id:
+        raise HTTPException(status_code=404, detail=f"Artifact '{artifact_id}' not found")
+    if isinstance(artifact.content, (dict, list)):
+        body = json.dumps(artifact.content, ensure_ascii=False, indent=2)
+        media_type = "application/json"
+        ext = "json"
+    else:
+        body = str(artifact.content)
+        media_type = "text/plain; charset=utf-8"
+        ext = "txt"
+    filename = f"{artifact.type}-{artifact.id[:8]}.{ext}"
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{task_id}/timeline")
 async def get_task_timeline(task_id: str):
     task = await platform.task_store.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
     messages = await platform.task_store.get_messages(task_id)
-    events = [
-        {
-            "at": m.timestamp.isoformat(),
-            "from_agent": m.from_agent,
-            "to_agent": m.to_agent,
-            "type": m.message_type.value,
-            "trace_id": m.trace_id,
-            "message_id": m.id,
-        }
-        for m in messages
-    ]
+    ctx = TaskContext.model_validate(task.context or {})
+    events = []
+    prev_at: datetime | None = None
+    for message in messages:
+        duration_ms = None
+        if prev_at is not None:
+            duration_ms = int((message.timestamp - prev_at).total_seconds() * 1000)
+        prev_at = message.timestamp
+        events.append(
+            {
+                "at": message.timestamp.isoformat(),
+                "from_agent": message.from_agent,
+                "to_agent": message.to_agent,
+                "type": message.message_type.value,
+                "trace_id": message.trace_id,
+                "message_id": message.id,
+                "assignment_id": message.metadata.get("assignment_id", ""),
+                "duration_ms": duration_ms,
+            }
+        )
+    total_duration_ms = None
+    if task.created_at and task.updated_at:
+        total_duration_ms = int((task.updated_at - task.created_at).total_seconds() * 1000)
+    assignment_durations = []
+    for assignment_id, started_at in ctx.assignment_started_at.items():
+        try:
+            started = datetime.fromisoformat(started_at)
+        except ValueError:
+            continue
+        ended = task.updated_at
+        for message in reversed(messages):
+            if message.metadata.get("assignment_id") == assignment_id:
+                ended = message.timestamp
+                break
+        assignment_durations.append(
+            {
+                "assignment_id": assignment_id,
+                "started_at": started_at,
+                "duration_ms": int((ended - started).total_seconds() * 1000),
+            }
+        )
     return {
         "task_id": task_id,
         "status": task.status.value,
         "created_at": task.created_at.isoformat(),
         "updated_at": task.updated_at.isoformat(),
+        "total_duration_ms": total_duration_ms,
+        "assignment_durations": assignment_durations,
         "events": events,
+    }
+
+
+@router.get("/{task_id}/usage")
+async def get_task_usage(task_id: str):
+    task = await platform.task_store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+    ctx = TaskContext.model_validate(task.context or {})
+    entries = [item.model_dump() for item in ctx.llm_usage]
+    totals = merge_usage(ctx.llm_usage)
+    cost = estimate_cost(
+        totals,
+        input_per_1k=settings.llm_cost_input_per_1k,
+        output_per_1k=settings.llm_cost_output_per_1k,
+    )
+    return {
+        "task_id": task_id,
+        "entries": entries,
+        "totals": totals,
+        "estimated_cost_usd": round(cost, 6),
     }
 
 
@@ -166,7 +245,7 @@ async def get_task_workspace(task_id: str):
 
 
 @router.get("/{task_id}/stream")
-async def stream_task(task_id: str):
+async def stream_task(task_id: str, _: None = Depends(verify_api_key)):
     from fastapi.responses import StreamingResponse
 
     task = await platform.task_store.get(task_id)
@@ -189,6 +268,8 @@ async def stream_task(task_id: str):
             payload.update(queue)
             if current.status == TaskStatus.WAITING_APPROVAL:
                 payload["approval_message"] = (current.context or {}).get("approval_message", "")
+            stream = await platform.stream_buffer.snapshot(task_id)
+            payload.update(stream)
             line = json.dumps(payload, ensure_ascii=False)
             if line != last:
                 yield f"data: {line}\n\n"
@@ -202,6 +283,18 @@ async def stream_task(task_id: str):
             await asyncio.sleep(1)
 
     return StreamingResponse(events(), media_type="text/event-stream")
+
+
+@router.post("/{task_id}/resume")
+async def resume_task(task_id: str, req: ResumeTaskRequest | None = None):
+    from_assignment = req.from_assignment if req else ""
+    task = await platform.resume_task(task_id, from_assignment=from_assignment)
+    if not task:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task '{task_id}' not found or cannot be resumed",
+        )
+    return {"task": task.model_dump()}
 
 
 @router.post("/{task_id}/cancel")

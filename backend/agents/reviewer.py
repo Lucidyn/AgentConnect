@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from backend.constants import REVIEWER
 from backend.core.agent import Agent
 from backend.models.message import Message
@@ -33,7 +35,7 @@ class ReviewerAgent(Agent):
         )
 
         self.remember("last_review", result)
-        failed = ("Bug" in result or "需要修改" in result) and "通过" not in result
+        failed = review_failed(result)
 
         if failed:
             await self.request_planner_retry(
@@ -66,3 +68,15 @@ class ReviewerAgent(Agent):
             "代码结构清晰，API 设计合理。\n"
             "建议：生产环境添加日志和监控。"
         )
+
+
+def review_failed(result: str) -> bool:
+    """Parse structured review verdict; fall back to legacy heuristics."""
+    match = re.search(r"【审查结果】\s*(通过|需要修改)", result)
+    if match:
+        return match.group(1) == "需要修改"
+    if re.search(r"审查结果[：:]\s*通过", result):
+        return False
+    if "需要修改" in result and "通过" not in result.split("需要修改", 1)[0]:
+        return True
+    return "Bug" in result

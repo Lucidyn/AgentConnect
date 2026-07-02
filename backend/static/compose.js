@@ -22,7 +22,7 @@
   let selectedId = null;
   let linkSourceId = null;
   let dragState = null;
-  let planSummary = '可视化编排：{task}';
+  let planSummary = '自定义计划：{task}';
   let validationTimer = null;
 
   const els = {};
@@ -52,15 +52,11 @@
     }
 
     document.getElementById('btn-add-node')?.addEventListener('click', () => addNode());
-    document.getElementById('btn-auto-layout')?.addEventListener('click', autoLayout);
-    document.getElementById('btn-parallel-fork')?.addEventListener('click', addParallelFork);
-    document.getElementById('btn-merge-join')?.addEventListener('click', addMergeJoin);
     document.getElementById('btn-clear-canvas')?.addEventListener('click', clearCanvas);
-    document.getElementById('btn-import-json')?.addEventListener('click', importJson);
-    document.getElementById('btn-export-json')?.addEventListener('click', exportJson);
     document.getElementById('btn-validate-plan')?.addEventListener('click', validatePlan);
     document.getElementById('btn-submit-plan')?.addEventListener('click', submitPlan);
     document.getElementById('btn-load-template')?.addEventListener('click', loadTemplate);
+    document.getElementById('btn-save-template')?.addEventListener('click', saveTemplate);
 
     renderPalette();
     renderAll();
@@ -158,31 +154,6 @@
     return reachable(fromId, toId);
   }
 
-  function addParallelFork() {
-    const a = addNode({ agent: 'Research', task: '调研：{task}', x: 60, y: 80 });
-    const b = addNode({ agent: 'Analyst', task: '分析：{task}', x: 60, y: 180 });
-    const w = addNode({ agent: 'Writer', task: '写作：{task}', x: 280, y: 130 });
-    w.depends_on = [a.id, b.id];
-    selectedId = w.id;
-    renderAll();
-  }
-
-  function addMergeJoin() {
-    if (nodes.length < 2) {
-      addParallelFork();
-      return;
-    }
-    const sources = nodes.filter(n => !n.depends_on.length).slice(0, 2);
-    if (sources.length < 2) {
-      const extra = addNode({ agent: 'Analyst', task: '分析：{task}' });
-      sources.push(extra);
-    }
-    const merge = addNode({ agent: 'Writer', task: '汇总写作：{task}', x: 300, y: 120 });
-    merge.depends_on = sources.slice(0, 2).map(s => s.id);
-    selectedId = merge.id;
-    renderAll();
-  }
-
   function autoLayout() {
     const layers = topoLayers(nodes);
     const colW = NODE_W + 48;
@@ -206,7 +177,7 @@
 
   function buildPlan() {
     return {
-      summary: planSummary || '可视化编排：{task}',
+      summary: planSummary || '自定义计划：{task}',
       steps: nodes.map(n => n.agent),
       assignments: nodes.map(n => ({
         id: n.id,
@@ -295,35 +266,25 @@
     autoLayout();
   }
 
-  function importJson() {
-    const raw = prompt('粘贴 custom_plan JSON：');
-    if (!raw) return;
-    try {
-      const plan = JSON.parse(raw);
-      planSummary = plan.summary || planSummary;
-      if (els.planSummary) els.planSummary.value = planSummary;
-      nodes = (plan.assignments || []).map((a, i) => ({
-        id: a.id || uniqueId(),
-        agent: a.agent,
-        task: a.task || '{task}',
-        depends_on: a.depends_on || [],
-        reason: a.reason || '',
-        x: a.x ?? 40 + i * 30,
-        y: a.y ?? 40 + i * 20,
-      }));
-      autoLayout();
-    } catch (e) {
-      alert('JSON 解析失败');
+  async function saveTemplate() {
+    if (!nodes.length) return alert('画布上没有节点');
+    await validatePlanSilent();
+    if (els.validation?.classList.contains('error')) {
+      return alert('计划无效，请先修正：' + els.validation.textContent);
     }
-  }
-
-  function exportJson() {
-    const blob = new Blob([JSON.stringify(buildPlan(), null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'agent-connect-plan.json';
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const name = prompt('模板名称', planSummary.replace('{task}', '').trim() || '我的计划');
+    if (!name) return;
+    const custom_plan = buildPlan();
+    const res = await window.apiFetch('/templates/saved', {
+      method: 'POST',
+      body: JSON.stringify({ name, description: '', custom_plan }),
+    });
+    if (res.ok) {
+      if (typeof window.showToast === 'function') window.showToast('模板已保存', 'ok');
+      if (typeof window.loadTemplates === 'function') window.loadTemplates();
+    } else {
+      alert('保存失败');
+    }
   }
 
   async function submitPlan() {
@@ -335,13 +296,9 @@
       return alert('计划无效，请先修正：' + els.validation.textContent);
     }
     const custom_plan = buildPlan();
-    const collab = document.getElementById('compose-collab-mode')?.value
-      || document.getElementById('collab-mode')?.value
-      || 'blackboard';
-    const negotiation = document.getElementById('compose-negotiation')?.checked ?? true;
     if (typeof window.switchView === 'function') window.switchView('run');
     if (typeof window.submitTask === 'function') {
-      await window.submitTask({ custom_plan, collaboration_mode: collab, negotiation });
+      await window.submitTask({ custom_plan });
     }
   }
 

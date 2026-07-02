@@ -1,4 +1,4 @@
-"""Bridge agents — connect external SDKs to the platform message bus."""
+"""Bridged agents — connect external SDKs to the platform message bus."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import logging
 from abc import abstractmethod
 from typing import Any
 
+from backend.constants import PLANNER
 from backend.core.agent import Agent
 from backend.models.message import Message, MessageType
 
@@ -27,7 +28,7 @@ class OpenAIAgentsBridge(Agent):
         return SDKAgent(**kwargs)
 
     async def think(self, message: Message) -> str | None:
-        if message.from_agent not in ("Planner", "User"):
+        if message.from_agent not in (PLANNER, "User"):
             return None
         if message.message_type == MessageType.ERROR:
             return None
@@ -38,13 +39,18 @@ class OpenAIAgentsBridge(Agent):
             sdk_agent = self.build_sdk_agent()
             result = await Runner.run(sdk_agent, message.content)
             output = getattr(result, "final_output", None) or getattr(result, "output", "")
-            return str(output) if output else f"[{self.name}] completed with no output"
+            text = str(output) if output else f"[{self.name}] completed with no output"
         except ImportError:
             logger.warning("[%s] openai-agents not installed, using fallback", self.name)
-            return self._fallback(message)
+            text = self._fallback(message)
         except Exception as exc:
             logger.warning("[%s] OpenAI Agents run failed: %s", self.name, exc)
-            return self._fallback(message)
+            text = self._fallback(message)
+
+        if message.from_agent == PLANNER:
+            await self.reply_to_planner(message, text)
+            return None
+        return text
 
     def _fallback(self, message: Message) -> str:
         return (
@@ -57,28 +63,43 @@ class OpenAIAgentsBridge(Agent):
 class LangGraphBridge(Agent):
     """Delegate think() to a compiled LangGraph (pip install langgraph)."""
 
+    def __init__(self, services) -> None:
+        super().__init__(services)
+        self._compiled_graph: Any | None = None
+
     @abstractmethod
     async def build_graph(self) -> Any:
         """Return a compiled LangGraph with ainvoke support."""
 
+    async def _get_graph(self) -> Any:
+        if self._compiled_graph is None:
+            self._compiled_graph = await self.build_graph()
+        return self._compiled_graph
+
     async def think(self, message: Message) -> str | None:
-        if message.from_agent not in ("Planner", "User"):
+        if message.from_agent not in (PLANNER, "User"):
             return None
         if message.message_type == MessageType.ERROR:
             return None
 
         try:
-            graph = await self.build_graph()
+            graph = await self._get_graph()
             state = await graph.ainvoke({"input": message.content})
             if isinstance(state, dict):
-                return state.get("output") or state.get("result") or str(state)
-            return str(state)
+                text = state.get("output") or state.get("result") or str(state)
+            else:
+                text = str(state)
         except ImportError:
             logger.warning("[%s] langgraph not installed, using fallback", self.name)
-            return self._fallback(message)
+            text = self._fallback(message)
         except Exception as exc:
             logger.warning("[%s] LangGraph run failed: %s", self.name, exc)
-            return self._fallback(message)
+            text = self._fallback(message)
+
+        if message.from_agent == PLANNER:
+            await self.reply_to_planner(message, text)
+            return None
+        return text
 
     def _fallback(self, message: Message) -> str:
         return (

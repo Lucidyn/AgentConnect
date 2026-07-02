@@ -17,6 +17,9 @@ class RouterAgent(LangGraphBridge):
     role = "router"
     capabilities = ["routing", "classification"]
     description = "LangGraph 示例：任务分类路由"
+    inputs = ["task_description"]
+    outputs = ["route_decision"]
+    accepts = ["assignment_start"]
 
     async def build_graph(self):
         from langgraph.graph import END, START, StateGraph

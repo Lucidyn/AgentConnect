@@ -2,9 +2,10 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse, Response
 
+from backend.auth import verify_api_key
 from backend.config import settings
 from backend.core.metrics import metrics_response
 from backend.core.replica import get_replica_id
@@ -16,11 +17,11 @@ router = APIRouter(tags=["health"])
 STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
 
 
-@router.get("/metrics")
+@router.get("/metrics", dependencies=[Depends(verify_api_key)])
 async def metrics():
     await platform.refresh_metrics()
     body, content_type = metrics_response()
-    return Response(content=body, content_type=content_type)
+    return Response(content=body, media_type=content_type)
 
 
 @router.get("/")

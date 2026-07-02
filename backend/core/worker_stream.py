@@ -222,11 +222,16 @@ class RedisWorkerStream(WorkerStreamHub):
         items: list[tuple[str, WorkerTaskEnvelope]] = []
         for _stream, messages in rows or []:
             for stream_id, fields in messages:
-                envelope = WorkerTaskEnvelope.model_validate_json(fields["data"])
-                if envelope.agent == agent:
+                payload = fields["data"]
+                envelope = WorkerTaskEnvelope.model_validate_json(payload)
+                if envelope.agent == agent and len(items) < count:
                     items.append((stream_id, envelope))
-                if len(items) >= count:
-                    break
+                    continue
+                # Wrong worker or surplus batch item — ack PEL entry and requeue.
+                await self._redis.xack(
+                    settings.worker_stream_key, self._group, stream_id
+                )
+                await self._redis.xadd(settings.worker_stream_key, {"data": payload})
         return items
 
     async def ack_task(self, stream_id: str, consumer: str) -> None:

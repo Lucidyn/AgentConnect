@@ -8,10 +8,12 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
+from backend.config import settings
 from backend.constants import MAX_PROCESSED_MESSAGE_IDS, PLANNER
 from backend.core.metrics import AGENT_THINK_SECONDS, MESSAGES_SENT
 from backend.core.services import AgentServices
 from backend.core.trace import log_event
+from backend.core.llm_usage import LLMUsageEntry
 from backend.models.message import AgentInfo, Message, MessageIntent, MessageType
 from backend.models.task import TaskStatus
 
@@ -182,6 +184,59 @@ class Agent(ABC):
             },
         )
 
+    async def llm_chat(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        fallback: str,
+        *,
+        role: str = "default",
+        stream: bool = False,
+        message: Message | None = None,
+    ) -> str:
+        assignment_id = message.metadata.get("assignment_id", "") if message else ""
+
+        async def on_usage(entry: LLMUsageEntry) -> None:
+            if self.services.record_llm_usage and self._current_task_id:
+                await self.services.record_llm_usage(
+                    self._current_task_id, self.name, entry
+                )
+
+        use_stream = (
+            stream
+            and settings.llm_streaming
+            and self.llm.available
+            and self.services.stream_buffer is not None
+            and self._current_task_id
+        )
+        if not use_stream:
+            return await self.llm.chat(
+                system_prompt,
+                user_prompt,
+                fallback,
+                role=role,
+                agent=self.name,
+                on_usage=on_usage,
+            )
+
+        parts: list[str] = []
+        async for chunk in self.llm.chat_stream(
+            system_prompt,
+            user_prompt,
+            fallback,
+            role=role,
+            agent=self.name,
+            on_usage=on_usage,
+        ):
+            parts.append(chunk)
+            await self.services.stream_buffer.append(
+                self._current_task_id,
+                assignment_id=assignment_id,
+                agent=self.name,
+                chunk=chunk,
+            )
+        return "".join(parts) or fallback
+
     async def ask_agent(self, to_agent: str, question: str, reply_to: str = "") -> Message:
         """Ask another agent a bounded question within the current task thread."""
         return await self.send(
@@ -246,6 +301,8 @@ class Agent(ABC):
                     await self._ack_message(message.id)
                     continue
             try:
+                from backend.core.otel import start_agent_span
+
                 log_event(
                     logger,
                     "agent_think_start",
@@ -255,7 +312,12 @@ class Agent(ABC):
                     message_id=message.id,
                 )
                 t0 = time.monotonic()
-                response = await self.think(message)
+                with start_agent_span(
+                    self.name,
+                    self._current_task_id,
+                    message.metadata.get("assignment_id", ""),
+                ):
+                    response = await self.think(message)
                 AGENT_THINK_SECONDS.labels(agent=self.name).observe(time.monotonic() - t0)
                 if response:
                     await self.send(

@@ -64,8 +64,17 @@ class Settings(BaseSettings):
     llm_temperature_default: float = 0.7
     llm_temperature_planner: float = 0.0
     llm_timeout_seconds: float = 120.0
+    llm_streaming: bool = True
+    llm_cost_input_per_1k: float = 0.00015
+    llm_cost_output_per_1k: float = 0.0006
+    saved_templates_dir: str = "data/saved_templates"
 
-    # API limits
+    # HTTP tool plugin (MCP-style fetch)
+    http_tool_base_url: str = ""
+
+    # OpenTelemetry (optional)
+    otel_exporter_otlp_endpoint: str = ""
+    otel_service_name: str = "agent-connect"
     task_input_max_length: int = 8000
     api_max_list_limit: int = 100
 

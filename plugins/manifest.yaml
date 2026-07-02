@@ -38,7 +38,7 @@ agents:
   - name: vision
     module: plugins.vision.agent
     class: VisionAgent
-    enabled: false
+    enabled: true
     runtime: native
     llm_model: PaddleOCR + YOLO
   - name: summarizer
@@ -50,7 +50,7 @@ agents:
   - name: router
     module: plugins.langgraph.router
     class: RouterAgent
-    enabled: false
+    enabled: true
     runtime: langgraph
 
 tools:
@@ -62,3 +62,9 @@ tools:
     module: backend.tools.github
     class: GitHubTool
     enabled: true
+  - name: http
+    module: backend.tools.http
+    class: HttpTool
+    enabled: true
+    base_url: ""
+    path: /

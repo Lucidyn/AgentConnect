@@ -15,6 +15,7 @@ from backend.core.agent import Agent
 from backend.tools.arxiv import ArxivTool
 from backend.tools.base import Tool
 from backend.tools.github import GitHubTool
+from backend.tools.http import HttpTool
 from backend.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 _BUILTIN_TOOLS: dict[str, type[Tool]] = {
     "arxiv": ArxivTool,
     "github": GitHubTool,
+    "http": HttpTool,
 }
 
 REQUIRED_ENTRY_FIELDS = ("name", "module", "class")
@@ -125,7 +127,9 @@ def load_tool_registry(enabled: str = "") -> ToolRegistry:
                 cls = _import_class(entry["module"], entry["class"])
                 if not issubclass(cls, Tool):
                     raise TypeError(f"{entry['class']} is not a Tool subclass")
-                registry.register(cls())
+                tool = cls()
+                tool.configure(_entry_config(entry))
+                registry.register(tool)
                 loaded = True
                 seen.add(name)
                 logger.info("Loaded tool plugin: %s", name)
@@ -139,6 +143,8 @@ def load_tool_registry(enabled: str = "") -> ToolRegistry:
         for name in names:
             cls = _BUILTIN_TOOLS.get(name)
             if cls:
-                registry.register(cls())
+                tool = cls()
+                tool.configure({})
+                registry.register(tool)
 
     return registry

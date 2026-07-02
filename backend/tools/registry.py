@@ -12,7 +12,7 @@ from backend.tools.github import GitHubTool
 logger = logging.getLogger(__name__)
 
 _ARXIV_HINTS = ("论文", "paper", "arxiv", "research", "学术", "期刊")
-_GITHUB_HINTS = ("github", "开源", "repo", "repository", "代码库", "项目")
+_HTTP_HINTS = ("http://", "https://", "api ", "endpoint", "fetch ", "请求", "接口")
 
 
 class ToolRegistry:
@@ -42,6 +42,8 @@ class ToolRegistry:
             selected.append("arxiv")
         if any(hint in task_lower for hint in _GITHUB_HINTS):
             selected.append("github")
+        if any(hint in task_lower for hint in _HTTP_HINTS) and "http" in self._tools:
+            selected.append("http")
         if not selected:
             selected = ["github", "arxiv"]
         return [name for name in selected if name in self._tools]

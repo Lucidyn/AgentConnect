@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.routes import api_router
 from backend.constants import VERSION
+from backend.core.otel import instrument_fastapi, setup_otel
 from backend.platform import platform
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -22,6 +23,7 @@ async def lifespan(app: FastAPI):
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    setup_otel()
     await platform.start()
     yield
     await platform.stop()
@@ -35,6 +37,7 @@ app = FastAPI(
 )
 
 app.include_router(api_router)
+instrument_fastapi(app)
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

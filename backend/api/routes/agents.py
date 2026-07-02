@@ -1,11 +1,15 @@
 """Agent registry routes."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from backend.core.runtime import list_runtimes
+from backend.auth import verify_api_key
 from backend.platform import platform
 
-router = APIRouter(prefix="/agents", tags=["agents"])
+router = APIRouter(
+    prefix="/agents",
+    tags=["agents"],
+    dependencies=[Depends(verify_api_key)],
+)
 
 
 @router.get("")

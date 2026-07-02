@@ -1,0 +1,9 @@
+# Optional observability stack
+# opentelemetry-api>=1.27.0
+# opentelemetry-sdk>=1.27.0
+# opentelemetry-exporter-otlp-proto-http>=1.27.0
+# opentelemetry-instrumentation-fastapi>=0.48b0
+
+# Optional plugin runtimes
+# langgraph>=0.2.0
+# openai-agents>=0.0.14

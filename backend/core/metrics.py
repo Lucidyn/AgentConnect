@@ -12,6 +12,11 @@ MESSAGES_SENT = Counter("ac_messages_sent_total", "Messages published", ["from_a
 OUTBOX_PENDING = Gauge("ac_outbox_pending", "Outbox pending messages")
 OUTBOX_FAILED = Gauge("ac_outbox_failed", "Outbox failed messages")
 LLM_REQUESTS = Counter("ac_llm_requests_total", "LLM requests", ["provider", "result"])
+LLM_TOKENS = Counter(
+    "ac_llm_tokens_total",
+    "LLM tokens consumed",
+    ["provider", "direction"],
+)
 AGENT_THINK_SECONDS = Histogram(
     "ac_agent_think_seconds",
     "Agent think() duration",
