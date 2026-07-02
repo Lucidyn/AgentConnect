@@ -53,9 +53,8 @@ class ResearchAgent(Agent):
             message=message,
         )
 
-        await self.shared_memory.store(
+        await self.store_in_shared_memory(
             content=result,
-            agent=self.name,
             metadata={"task": task, "tools": [r.tool for r in tool_results]},
             task_id=self._current_task_id,
         )

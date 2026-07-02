@@ -1,10 +1,17 @@
 # Agent Connect
 
-**Multi-Agent Collaboration Platform** — 多智能体协作平台 v1.0
+**Multi-Agent Collaboration Platform** — 多智能体协作平台 v1.1
 
-可演示、可扩展的单节点多 Agent 编排系统。Agent 通过 Message Bus 异步通信；支持 DAG 计划、模板流水线与可视化编排。
+可演示、可扩展的单节点多 Agent 编排系统。Agent 通过 Message Bus 异步通信；支持 DAG 计划、模板流水线、多租户 RBAC 与可视化编排。
 
 **三步使用**：选模板（可选）→ 输入任务 → 提交。
+
+> 📖 **延伸阅读**  
+> - [文档目录](docs/README.md)  
+> - [项目特点与技术介绍](docs/project-overview.md)  
+> - [架构完善建议](docs/architecture-review.md)  
+> - [Phase 3 分布式架构](docs/phase3-architecture.md)  
+> - [生产部署 Checklist](docs/production-checklist.md)
 
 ```
                     User
@@ -130,6 +137,12 @@ LLM_TIMEOUT_SECONDS=120
 
 # 鉴权 — 设置后任务/Agent/工具/指标等 API 需 X-API-Key（/health 保持公开）
 API_KEY=
+MULTI_TENANT=true
+API_KEY_SALT=agent-connect
+# 生产加固（详见 docs/production-checklist.md）
+PRODUCTION_MODE=false
+CORS_ORIGINS=
+RATE_LIMIT_PER_MINUTE=120
 
 # 任务队列
 MAX_CONCURRENT_TASKS=3
@@ -189,8 +202,40 @@ WORKER_MODE=false
 | `GET /metrics` | Prometheus |
 | `GET /traces/{trace_id}` | Trace 链路 |
 | `GET /health` | 健康检查 |
+| `GET /admin/tenants/{id}/keys` | 列出租户 API Key（admin） |
+| `POST /admin/tenants/{id}/keys` | 创建 API Key（admin，明文仅返回一次） |
+| `DELETE /admin/tenants/{id}/keys/{key_id}` | 吊销 Key |
+| `POST /admin/tenants` | 创建租户 |
+| `GET /auth/me` | 当前租户与角色 |
+| `GET /a2a/agent-card` | 对外 A2A Agent Card |
+| `POST /a2a/tasks/send` | 对外 A2A 提交任务 |
+| `POST /a2a/tasks/get` | 对外 A2A 查询任务状态 |
+| `POST /a2a/tasks/cancel` | 对外 A2A 取消任务 |
+| `POST /a2a/rpc` | JSON-RPC（tasks/send|get|cancel） |
 | `/docs` | OpenAPI 文档 |
 | `/ws/messages` | WebSocket 实时消息（`?api_key=` 或 header） |
+
+### 多租户与 RBAC
+
+| 角色 | 权限 |
+|------|------|
+| `viewer` | 读任务、模板、Agent |
+| `operator` | + 提交任务、审批、续跑、保存模板 |
+| `admin` | + 管理租户 API Key |
+
+遗留环境变量 `API_KEY` 映射为 `default` 租户 **admin**。新建租户与密钥示例：
+
+```bash
+curl -X POST http://localhost:8000/admin/tenants \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"acme","name":"Acme Corp"}'
+
+curl -X POST http://localhost:8000/admin/tenants/acme/keys \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"ops","role":"operator"}'
+```
 
 ```bash
 curl -X POST http://localhost:8000/tasks \
@@ -207,18 +252,22 @@ curl -X POST http://localhost:8000/tasks \
 ```
 agent_connect/
 ├── backend/
-│   ├── api/              # HTTP 路由
+│   ├── a2a/              # 对外 A2A 协议适配
+│   ├── api/              # HTTP 路由（含 admin）
 │   ├── agents/           # 内置 Agent（8 个）
-│   ├── core/             # Bus、编排、LLM、DB、Worker
+│   ├── core/             # Bus、编排、LLM、DB、Worker、租户
+│   ├── models/           # Pydantic 模型（含 auth）
 │   ├── worker/           # 分布式 Worker 进程入口
-│   └── static/           # Web UI + compose.js
+│   └── static/           # Web UI
 ├── frontend/           # Vite 模块化 UI 源码 → backend/static/assets/
 ├── deploy/               # nginx + Prometheus + Grafana 配置
 ├── plugins/
 │   ├── manifest.yaml
 │   └── plan_templates.yaml
 ├── docs/
-│   └── phase3-architecture.md
+│   ├── project-overview.md      # 项目特点与技术介绍
+│   ├── architecture-review.md   # 架构完善建议
+│   └── phase3-architecture.md   # 分布式 Worker / Postgres
 └── tests/              # 单元与集成测试（CI 默认跑非 integration 子集）
 ```
 
@@ -230,7 +279,18 @@ agent_connect/
 | Phase 2 | DAG 并行、审批、Prometheus、Outbox | ✅ |
 | **v0.8** | 模板、DAG 编排 UI、黑板、协商协议、API 加固 | ✅ |
 | **v0.9** | Phase 3 分布式 Worker（Redis Stream） | ✅ |
-| **v1.0** | 多 API 副本 + Postgres 共享任务库 | ✅ 当前 |
+| **v1.0** | 多 API 副本 + Postgres 共享任务库 | ✅ |
+| **v1.1** | 多租户 RBAC、A2A 适配、Token 计量、UI 简化 | ✅ 当前 |
+
+### v1.1 新增
+
+- **多租户**：`tenants` / `api_keys` 表，任务与保存模板按 `tenant_id` 隔离
+- **RBAC**：viewer / operator / admin，`require_role()` 保护路由
+- **Admin API**：`/admin/tenants`、`/admin/tenants/{id}/keys`
+- **A2A**：进程内白名单策略 + 对外 `/a2a/agent-card`、`/a2a/tasks/send`
+- **Token 计量**：`GET /tasks/{id}/usage`，Agent 经 `llm_chat` 记录用量
+- **续跑**：`POST /tasks/{id}/resume`
+- **UI**：Inter 字体、卡片布局、「复制结果」按钮；默认 Planner 模式
 
 ### v1.0 新增（Phase 3e）
 
@@ -263,6 +323,7 @@ agent_connect/
 - **API**: FastAPI + WebSocket + SSE
 - **存储**: SQLite（本地）或 Postgres（多副本）；Qdrant（共享记忆，可选；多进程请设 `USE_QDRANT=false` 或独立 Qdrant 服务）
 - **部署**: Docker Compose（Postgres + nginx + workers）
+- **多租户**: API Key + RBAC + 最小 A2A 适配
 
 ## 测试
 

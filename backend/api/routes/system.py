@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from backend.api.deps import clamp_limit, require_role
 from backend.api.schemas import MemoryQueryRequest
 from backend.auth import get_auth_context, verify_ws_api_key
+from backend.core.tenant_access import filter_messages_for_tenant, require_task_for_tenant
 from backend.models.auth import AuthContext, Role
 from backend.core.runtime import list_runtimes
 from backend.platform import platform
@@ -29,21 +30,41 @@ async def validate_plugins():
     return validate_manifest()
 
 
-@router.post("/memory/query", dependencies=[Depends(get_auth_context)])
-async def query_memory(req: MemoryQueryRequest):
+@router.post("/memory/query")
+async def query_memory(
+    req: MemoryQueryRequest,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
     if not platform.shared_memory:
         return {"entries": []}
+    if req.task_id:
+        task = await require_task_for_tenant(platform.task_store, req.task_id, auth.tenant_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Task '{req.task_id}' not found")
     entries = await platform.shared_memory.query(
-        req.query, limit=req.limit, task_id=req.task_id
+        req.query,
+        limit=req.limit,
+        task_id=req.task_id,
+        tenant_id=auth.tenant_id,
     )
     return {"entries": [e.model_dump() for e in entries]}
 
 
-@router.get("/traces/{trace_id}", dependencies=[Depends(get_auth_context)])
-async def get_trace(trace_id: str):
-    messages = await platform.task_store.find_by_trace(trace_id)
+@router.get("/traces/{trace_id}")
+async def get_trace(
+    trace_id: str,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
+    messages = await platform.task_store.find_by_trace(trace_id, tenant_id=auth.tenant_id)
     if not messages:
-        messages = [m for m in platform.message_log if m.trace_id == trace_id]
+        in_memory = await filter_messages_for_tenant(
+            platform.task_store,
+            [m for m in platform.message_log if m.trace_id == trace_id],
+            auth.tenant_id,
+        )
+        messages = in_memory
+    if not messages:
+        raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found")
     return {"trace_id": trace_id, "messages": [m.model_dump() for m in messages]}
 
 
@@ -64,18 +85,30 @@ async def get_current_plan(
 
 @router.websocket("/ws/messages")
 async def websocket_messages(websocket: WebSocket):
-    if not await verify_ws_api_key(websocket):
+    auth = await verify_ws_api_key(websocket)
+    if not auth:
         await websocket.close(code=4401)
         return
     await websocket.accept()
 
     async def on_message(message):
-        await websocket.send_json(message.model_dump(mode="json"))
+        visible = await filter_messages_for_tenant(
+            platform.task_store,
+            [message],
+            auth.tenant_id,
+        )
+        if visible:
+            await websocket.send_json(message.model_dump(mode="json"))
 
     platform.add_message_listener(on_message)
 
     try:
-        for msg in platform.message_log[-20:]:
+        recent = await filter_messages_for_tenant(
+            platform.task_store,
+            platform.message_log[-20:],
+            auth.tenant_id,
+        )
+        for msg in recent:
             await websocket.send_json(msg.model_dump(mode="json"))
 
         while True:

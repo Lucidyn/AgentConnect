@@ -50,10 +50,17 @@ class SharedMemory(ABC):
         agent: str,
         metadata: dict | None = None,
         task_id: str = "",
+        tenant_id: str = "",
     ) -> str: ...
 
     @abstractmethod
-    async def query(self, query: str, limit: int = 5, task_id: str = "") -> list[MemoryEntry]: ...
+    async def query(
+        self,
+        query: str,
+        limit: int = 5,
+        task_id: str = "",
+        tenant_id: str = "",
+    ) -> list[MemoryEntry]: ...
 
 
 class InMemorySharedMemory(SharedMemory):
@@ -74,28 +81,40 @@ class InMemorySharedMemory(SharedMemory):
         agent: str,
         metadata: dict | None = None,
         task_id: str = "",
+        tenant_id: str = "",
     ) -> str:
         meta = dict(metadata or {})
         if task_id:
             meta["task_id"] = task_id
+        if tenant_id:
+            meta["tenant_id"] = tenant_id
         entry = MemoryEntry(agent=agent, content=content, metadata=meta)
         self._entries.append(entry)
         self._vectors.append(_embed_text(content))
         return entry.id
 
-    async def query(self, query: str, limit: int = 5, task_id: str = "") -> list[MemoryEntry]:
+    async def query(
+        self,
+        query: str,
+        limit: int = 5,
+        task_id: str = "",
+        tenant_id: str = "",
+    ) -> list[MemoryEntry]:
         if not self._entries:
             return []
 
         entries = self._entries
         vectors = self._vectors
-        if task_id:
+        filtered = list(zip(entries, vectors))
+        if tenant_id:
             filtered = [
-                (e, v) for e, v in zip(entries, vectors) if e.metadata.get("task_id") == task_id
+                (e, v) for e, v in filtered if e.metadata.get("tenant_id") == tenant_id
             ]
-            if not filtered:
-                return []
-            entries, vectors = zip(*filtered)
+        if task_id:
+            filtered = [(e, v) for e, v in filtered if e.metadata.get("task_id") == task_id]
+        if not filtered:
+            return []
+        entries, vectors = zip(*filtered)
         query_vec = _embed_text(query)
         scored = [
             (entry, _cosine(query_vec, vec))
@@ -139,12 +158,15 @@ class QdrantSharedMemory(SharedMemory):
         agent: str,
         metadata: dict | None = None,
         task_id: str = "",
+        tenant_id: str = "",
     ) -> str:
         from qdrant_client.models import PointStruct
 
         meta = dict(metadata or {})
         if task_id:
             meta["task_id"] = task_id
+        if tenant_id:
+            meta["tenant_id"] = tenant_id
         entry = MemoryEntry(agent=agent, content=content, metadata=meta)
         vector = self._embed(content)
         assert self._client is not None
@@ -154,15 +176,22 @@ class QdrantSharedMemory(SharedMemory):
         )
         return entry.id
 
-    async def query(self, query: str, limit: int = 5, task_id: str = "") -> list[MemoryEntry]:
+    async def query(
+        self,
+        query: str,
+        limit: int = 5,
+        task_id: str = "",
+        tenant_id: str = "",
+    ) -> list[MemoryEntry]:
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
         assert self._client is not None
-        query_filter = None
+        must = []
+        if tenant_id:
+            must.append(FieldCondition(key="metadata.tenant_id", match=MatchValue(value=tenant_id)))
         if task_id:
-            query_filter = Filter(
-                must=[FieldCondition(key="metadata.task_id", match=MatchValue(value=task_id))]
-            )
+            must.append(FieldCondition(key="metadata.task_id", match=MatchValue(value=task_id)))
+        query_filter = Filter(must=must) if must else None
         hits = self._client.query_points(
             collection_name=COLLECTION,
             query=self._embed(query),

@@ -1,8 +1,9 @@
 /**
  * Visual DAG composer — drag nodes, click-to-connect ports, inspector panel.
  */
-(function () {
-  const NODE_W = 132;
+import { apiFetch } from './api.js';
+
+const NODE_W = 132;
   const NODE_H = 56;
   const AGENT_COLORS = {
     Research: '#3b82f6',
@@ -214,7 +215,7 @@
     }
     const task = document.getElementById('task-input')?.value.trim() || 'demo';
     try {
-      const res = await (window.apiFetch || fetch)('/templates/validate', {
+      const res = await apiFetch('/templates/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task, custom_plan: buildPlan() }),
@@ -247,7 +248,7 @@
   async function loadTemplate() {
     const id = document.getElementById('compose-template-select')?.value;
     if (!id) return alert('请先选择模板');
-    const res = await (window.apiFetch || fetch)(`/templates/${id}`);
+    const res = await apiFetch(`/templates/${id}`);
     const data = await res.json();
     if (data.error) return alert(data.error);
     const tpl = data.template;
@@ -275,7 +276,7 @@
     const name = prompt('模板名称', planSummary.replace('{task}', '').trim() || '我的计划');
     if (!name) return;
     const custom_plan = buildPlan();
-    const res = await window.apiFetch('/templates/saved', {
+    const res = await apiFetch('/templates/saved', {
       method: 'POST',
       body: JSON.stringify({ name, description: '', custom_plan }),
     });
@@ -584,11 +585,10 @@
     return String(text).replace(/"/g, '&quot;');
   }
 
-  window.ComposeEditor = {
-    init,
-    setAgentNames,
-    renderAll,
-    buildPlan,
-    loadFromTemplate: loadTemplate,
-  };
-})();
+export const ComposeEditor = {
+  init,
+  setAgentNames,
+  renderAll,
+  buildPlan,
+  loadFromTemplate: loadTemplate,
+};

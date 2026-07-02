@@ -12,6 +12,11 @@ async def get_auth_context(
     x_api_key: str | None = Header(default=None),
     api_key: str | None = Query(default=None),
 ) -> AuthContext:
+    if settings.production_mode and not settings.api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Server misconfigured: API_KEY required when PRODUCTION_MODE=true",
+        )
     if not settings.api_key:
         return AuthContext(tenant_id=DEFAULT_TENANT_ID, role=Role.ADMIN)
 

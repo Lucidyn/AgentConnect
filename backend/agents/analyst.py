@@ -40,9 +40,8 @@ class AnalystAgent(Agent):
             message=message,
         )
 
-        await self.shared_memory.store(
+        await self.store_in_shared_memory(
             content=result,
-            agent=self.name,
             metadata={"task": task[:200]},
             task_id=self._current_task_id,
         )

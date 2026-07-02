@@ -1069,3 +1069,50 @@
     .toast.error { background: #7f1d1d; border: 1px solid #ef4444; color: #fecaca; }
     .toast.ok { background: #14532d; border: 1px solid #22c55e; color: #bbf7d0; }
     .toast.info { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+
+    .auth-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--accent);
+      background: rgba(99, 102, 241, 0.12);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+    }
+
+    .admin-panel { padding: 1rem 0; }
+    .admin-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 1rem 0;
+    }
+    .admin-actions input, .admin-actions select {
+      padding: 0.45rem 0.65rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+    }
+    .admin-new-key {
+      padding: 0.75rem;
+      border-radius: var(--radius-md);
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .admin-key-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.55rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .admin-key-row .btn-revoke {
+      margin-left: auto;
+      font-size: 0.75rem;
+      padding: 0.25rem 0.55rem;
+    }

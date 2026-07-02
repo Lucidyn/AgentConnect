@@ -161,3 +161,12 @@ class MessageOutbox:
         count = await self._db.execute("DELETE FROM message_outbox WHERE status = 'failed'")
         await self._db.commit()
         return count
+
+    async def delete_failed(self, message_id: str) -> bool:
+        assert self._db is not None
+        count = await self._db.execute(
+            "DELETE FROM message_outbox WHERE message_id = ? AND status = 'failed'",
+            (message_id,),
+        )
+        await self._db.commit()
+        return count > 0

@@ -323,9 +323,18 @@ class Platform:
 
     @property
     def message_log(self) -> list[Message]:
+        merged: list[Message] = []
+        seen: set[str] = set()
+        sources: list[Message] = []
         if isinstance(self.bus, (InMemoryMessageBus, ReliableMessageBus)):
-            return self.bus.history  # type: ignore[union-attr]
-        return self._message_log
+            sources.extend(self.bus.history)  # type: ignore[union-attr]
+        sources.extend(self._message_log)
+        for message in sources:
+            if message.id in seen:
+                continue
+            seen.add(message.id)
+            merged.append(message)
+        return merged
 
     async def _record_llm_usage(self, task_id: str, agent: str, entry: LLMUsageEntry) -> None:
         task = await self.task_store.get(task_id)

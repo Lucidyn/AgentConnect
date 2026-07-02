@@ -14,6 +14,7 @@ from backend.core.metrics import AGENT_THINK_SECONDS, MESSAGES_SENT
 from backend.core.services import AgentServices
 from backend.core.trace import log_event
 from backend.core.llm_usage import LLMUsageEntry
+from backend.models.auth import DEFAULT_TENANT_ID
 from backend.models.message import AgentInfo, Message, MessageIntent, MessageType
 from backend.models.task import TaskStatus
 
@@ -237,6 +238,26 @@ class Agent(ABC):
             )
         return "".join(parts) or fallback
 
+    async def store_in_shared_memory(
+        self,
+        content: str,
+        metadata: dict | None = None,
+        task_id: str = "",
+    ) -> str:
+        tid = task_id or self._current_task_id
+        tenant_id = DEFAULT_TENANT_ID
+        if tid and self.task_store:
+            task = await self.task_store.get(tid)
+            if task:
+                tenant_id = task.tenant_id
+        return await self.shared_memory.store(
+            content=content,
+            agent=self.name,
+            metadata=metadata,
+            task_id=tid,
+            tenant_id=tenant_id,
+        )
+
     async def ask_agent(self, to_agent: str, question: str, reply_to: str = "") -> Message:
         """Ask another agent a bounded question within the current task thread."""
         from backend.core.a2a_policy import check_a2a_query, record_a2a_query
@@ -397,8 +418,16 @@ class Agent(ABC):
         return self.memory.get(key, default)
 
     async def recall_shared(self, query: str, limit: int = 3) -> str:
+        tenant_id = DEFAULT_TENANT_ID
+        if self._current_task_id and self.task_store:
+            task = await self.task_store.get(self._current_task_id)
+            if task:
+                tenant_id = task.tenant_id
         entries = await self.shared_memory.query(
-            query, limit=limit, task_id=self._current_task_id
+            query,
+            limit=limit,
+            task_id=self._current_task_id,
+            tenant_id=tenant_id,
         )
         if not entries:
             return ""

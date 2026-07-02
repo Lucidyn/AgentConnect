@@ -40,6 +40,40 @@ jobs:
       - name: Run pytest
         run: pytest tests/ -q --ignore=tests/integration
 
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent
+          POSTGRES_DB: agentconnect
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run Postgres tests
+        env:
+          DATABASE_URL: postgresql://agent:agent@localhost:5432/agentconnect
+        run: pytest tests/ -q -m postgres
+
   docker:
     runs-on: ubuntu-latest
     steps:

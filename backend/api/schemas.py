@@ -61,4 +61,11 @@ class CreateApiKeyRequest(BaseModel):
 
 class A2ATaskSendRequest(BaseModel):
     id: str = Field(default="", max_length=64)
-    message: dict
+    message: dict = Field(default_factory=dict)
+
+
+class A2AJsonRpcRequest(BaseModel):
+    jsonrpc: str = "2.0"
+    id: str | int | None = None
+    method: str
+    params: dict = Field(default_factory=dict)

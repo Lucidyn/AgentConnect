@@ -19,6 +19,7 @@
     </div>
     <div class="header-actions">
       <input id="api-key-input" class="api-key-input" type="password" placeholder="API Key (可选)" />
+      <span id="auth-badge" class="auth-badge" style="display:none"></span>
       <div id="connection-status" class="connection-pill">
         <span class="status-dot offline" id="status-dot"></span>
         <span id="status-text">连接中...</span>
@@ -37,6 +38,7 @@
       <div class="mode-tabs">
         <button class="mode-tab active" id="tab-run" onclick="switchView('run')">运行</button>
         <button class="mode-tab" id="tab-compose" onclick="switchView('compose')">编排 (DAG)</button>
+        <button class="mode-tab" id="tab-admin" onclick="switchView('admin')" style="display:none">管理</button>
       </div>
 
       <div class="view-panel active" id="view-run">
@@ -111,6 +113,24 @@
           </div>
         </div>
       </div>
+
+      <div class="view-panel" id="view-admin">
+        <div class="admin-panel">
+          <h2>租户与 API Key</h2>
+          <p id="admin-auth-info" class="subtle">加载中...</p>
+          <div class="admin-actions">
+            <input id="admin-key-name" type="text" placeholder="新 Key 名称" />
+            <select id="admin-key-role">
+              <option value="operator">operator</option>
+              <option value="viewer">viewer</option>
+              <option value="admin">admin</option>
+            </select>
+            <button type="button" id="btn-create-key">创建 Key</button>
+          </div>
+          <pre id="admin-new-key" class="admin-new-key" style="display:none"></pre>
+          <div id="admin-keys-list" class="admin-keys-list"><div class="empty">暂无密钥</div></div>
+        </div>
+      </div>
     </div>
 
     <div class="panel sidebar-panel">
@@ -172,7 +192,6 @@
     </div>
   </main>
 
-  <script src="/static/compose.js"></script>
   <script>
     let ws = null;
     let messageCount = 0;
@@ -248,13 +267,94 @@
     function switchView(name) {
       document.getElementById('view-run').classList.toggle('active', name === 'run');
       document.getElementById('view-compose').classList.toggle('active', name === 'compose');
+      document.getElementById('view-admin').classList.toggle('active', name === 'admin');
       document.getElementById('tab-run').classList.toggle('active', name === 'run');
       document.getElementById('tab-compose').classList.toggle('active', name === 'compose');
+      document.getElementById('tab-admin').classList.toggle('active', name === 'admin');
       if (name === 'compose' && window.ComposeEditor) {
         window.ComposeEditor.renderAll();
       }
+      if (name === 'admin') loadAdminKeys();
     }
     window.switchView = switchView;
+
+    let authProfile = null;
+
+    async function loadAuthMe() {
+      const badge = document.getElementById('auth-badge');
+      const tabAdmin = document.getElementById('tab-admin');
+      try {
+        const res = await apiFetch('/auth/me', { silent: true });
+        if (!res.ok) {
+          if (badge) badge.style.display = 'none';
+          if (tabAdmin) tabAdmin.style.display = 'none';
+          authProfile = null;
+          return;
+        }
+        authProfile = await res.json();
+        if (badge) {
+          badge.style.display = 'inline-flex';
+          badge.textContent = `${authProfile.tenant_id} · ${authProfile.role}`;
+        }
+        if (tabAdmin) tabAdmin.style.display = authProfile.role === 'admin' ? 'inline-block' : 'none';
+        const info = document.getElementById('admin-auth-info');
+        if (info) info.textContent = `当前租户：${authProfile.tenant_id}，角色：${authProfile.role}`;
+      } catch (e) {
+        if (badge) badge.style.display = 'none';
+      }
+    }
+
+    async function loadAdminKeys() {
+      if (!authProfile || authProfile.role !== 'admin') return;
+      const list = document.getElementById('admin-keys-list');
+      const res = await apiFetch(`/admin/tenants/${authProfile.tenant_id}/keys`, { silent: true });
+      if (!res.ok) {
+        if (list) list.innerHTML = '<div class="empty">无法加载密钥列表</div>';
+        return;
+      }
+      const data = await res.json();
+      const keys = data.keys || [];
+      if (!keys.length) {
+        list.innerHTML = '<div class="empty">暂无密钥</div>';
+        return;
+      }
+      list.innerHTML = keys.map(k => `
+        <div class="admin-key-row">
+          <span>${k.name}</span>
+          <span class="subtle">${k.role}</span>
+          <span class="subtle">${k.revoked ? '已吊销' : '有效'}</span>
+          ${k.revoked ? '' : `<button type="button" data-key-id="${k.id}" class="btn-revoke">吊销</button>`}
+        </div>`).join('');
+      list.querySelectorAll('.btn-revoke').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const keyId = btn.dataset.keyId;
+          const del = await apiFetch(`/admin/tenants/${authProfile.tenant_id}/keys/${keyId}`, { method: 'DELETE' });
+          if (del.ok) {
+            showToast('密钥已吊销', 'ok');
+            loadAdminKeys();
+          }
+        });
+      });
+    }
+
+    async function createAdminKey() {
+      if (!authProfile || authProfile.role !== 'admin') return;
+      const name = document.getElementById('admin-key-name')?.value.trim() || 'api-key';
+      const role = document.getElementById('admin-key-role')?.value || 'operator';
+      const res = await apiFetch(`/admin/tenants/${authProfile.tenant_id}/keys`, {
+        method: 'POST',
+        body: JSON.stringify({ name, role }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const box = document.getElementById('admin-new-key');
+      if (box) {
+        box.style.display = 'block';
+        box.textContent = `新 Key（仅显示一次）：\n${data.key}`;
+      }
+      showToast('密钥已创建', 'ok');
+      loadAdminKeys();
+    }
 
     function connect() {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -875,8 +975,10 @@
     const apiKeyEl = document.getElementById('api-key-input');
     if (apiKeyEl) {
       apiKeyEl.value = localStorage.getItem(API_KEY_STORAGE) || '';
-      apiKeyEl.addEventListener('change', () => { saveApiKey(); connect(); });
+      apiKeyEl.addEventListener('change', () => { saveApiKey(); connect(); loadAuthMe(); });
     }
+    document.getElementById('btn-create-key')?.addEventListener('click', createAdminKey);
+    loadAuthMe();
     loadAgents();
     loadHealth();
     loadTemplates();

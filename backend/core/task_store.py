@@ -429,21 +429,42 @@ class TaskStore:
         )
         return [Message.model_validate_json(row[0]) for row in rows]
 
-    async def find_by_trace(self, trace_id: str, limit: int = 100) -> list[Message]:
+    async def find_by_trace(
+        self, trace_id: str, limit: int = 100, tenant_id: str | None = None
+    ) -> list[Message]:
         assert self._db is not None
-        if self._db.is_postgres:
+        if tenant_id:
+            if self._db.is_postgres:
+                sql = """
+                SELECT tm.message_json FROM task_messages tm
+                INNER JOIN tasks t ON t.id = tm.task_id
+                WHERE tm.message_json::jsonb->>'trace_id' = ?
+                  AND t.tenant_id = ?
+                ORDER BY tm.created_at LIMIT ?
+                """
+            else:
+                sql = """
+                SELECT tm.message_json FROM task_messages tm
+                INNER JOIN tasks t ON t.id = tm.task_id
+                WHERE json_extract(tm.message_json, '$.trace_id') = ?
+                  AND t.tenant_id = ?
+                ORDER BY tm.created_at LIMIT ?
+                """
+            rows = await self._db.fetchall(sql, (trace_id, tenant_id, limit))
+        elif self._db.is_postgres:
             sql = """
             SELECT message_json FROM task_messages
             WHERE message_json::jsonb->>'trace_id' = ?
             ORDER BY created_at LIMIT ?
             """
+            rows = await self._db.fetchall(sql, (trace_id, limit))
         else:
             sql = """
             SELECT message_json FROM task_messages
             WHERE json_extract(message_json, '$.trace_id') = ?
             ORDER BY created_at LIMIT ?
             """
-        rows = await self._db.fetchall(sql, (trace_id, limit))
+            rows = await self._db.fetchall(sql, (trace_id, limit))
         return [Message.model_validate_json(row[0]) for row in rows]
 
     async def save_artifact(self, artifact: Artifact) -> Artifact:

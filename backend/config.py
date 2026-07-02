@@ -94,5 +94,10 @@ class Settings(BaseSettings):
     worker_consumer_name: str = ""
     worker_poll_interval: float = 2.0
 
+    # Production hardening
+    production_mode: bool = False
+    cors_origins: str = ""
+    rate_limit_per_minute: int = 120
+
 
 settings = Settings()
