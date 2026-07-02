@@ -9,16 +9,23 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import Response
 
-from backend.api.deps import clamp_limit
+from backend.api.deps import clamp_limit, require_role
 from backend.api.schemas import ApprovalRequest, ResumeTaskRequest, TaskRequest, TaskResponse
-from backend.auth import verify_api_key
 from backend.config import settings
 from backend.core.llm_usage import estimate_cost, merge_usage
+from backend.models.auth import AuthContext, Role
 from backend.models.task import TaskStatus
 from backend.models.task_context import TaskContext
 from backend.platform import platform
 
-router = APIRouter(prefix="/tasks", tags=["tasks"], dependencies=[Depends(verify_api_key)])
+router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+async def _task_for_tenant(task_id: str, tenant_id: str):
+    task = await platform.task_store.get(task_id, tenant_id=tenant_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+    return task
 
 
 def _task_preview(task) -> str:
@@ -65,8 +72,11 @@ def _workspace_display_entries(task) -> list[dict]:
 
 
 @router.get("")
-async def list_tasks(limit: int = Depends(clamp_limit)):
-    tasks = await platform.task_store.list_tasks(limit=limit)
+async def list_tasks(
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+    limit: int = Depends(clamp_limit),
+):
+    tasks = await platform.task_store.list_tasks(limit=limit, tenant_id=auth.tenant_id)
     items = []
     for t in tasks:
         items.append(await _task_with_queue(t))
@@ -74,11 +84,12 @@ async def list_tasks(limit: int = Depends(clamp_limit)):
 
 
 @router.get("/result")
-async def get_task_result(task_id: str = ""):
+async def get_task_result(
+    task_id: str = "",
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
     if task_id:
-        task = await platform.task_store.get(task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+        task = await _task_for_tenant(task_id, auth.tenant_id)
         return {
             "task_id": task.id,
             "status": task.status.value,
@@ -86,7 +97,7 @@ async def get_task_result(task_id: str = ""):
             "plan": task.plan,
         }
 
-    for task in await platform.task_store.list_tasks(limit=20):
+    for task in await platform.task_store.list_tasks(limit=20, tenant_id=auth.tenant_id):
         if task.status == TaskStatus.COMPLETED:
             return {
                 "task_id": task.id,
@@ -98,33 +109,38 @@ async def get_task_result(task_id: str = ""):
 
 
 @router.get("/{task_id}")
-async def get_task(task_id: str):
-    task = await platform.task_store.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+async def get_task(task_id: str, auth: AuthContext = Depends(require_role(Role.VIEWER))):
+    task = await _task_for_tenant(task_id, auth.tenant_id)
     return {"task": await _task_with_queue(task)}
 
 
 @router.get("/{task_id}/messages")
-async def get_task_messages(task_id: str):
-    task = await platform.task_store.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+async def get_task_messages(
+    task_id: str,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
+    await _task_for_tenant(task_id, auth.tenant_id)
     messages = await platform.task_store.get_messages(task_id)
     return {"task_id": task_id, "messages": [m.model_dump() for m in messages]}
 
 
 @router.get("/{task_id}/artifacts")
-async def get_task_artifacts(task_id: str):
-    task = await platform.task_store.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+async def get_task_artifacts(
+    task_id: str,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
+    await _task_for_tenant(task_id, auth.tenant_id)
     artifacts = await platform.task_store.list_artifacts(task_id)
     return {"task_id": task_id, "artifacts": [a.model_dump(mode="json") for a in artifacts]}
 
 
 @router.get("/{task_id}/artifacts/{artifact_id}/download")
-async def download_task_artifact(task_id: str, artifact_id: str):
+async def download_task_artifact(
+    task_id: str,
+    artifact_id: str,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
+    await _task_for_tenant(task_id, auth.tenant_id)
     artifact = await platform.task_store.get_artifact(artifact_id)
     if not artifact or artifact.task_id != task_id:
         raise HTTPException(status_code=404, detail=f"Artifact '{artifact_id}' not found")
@@ -145,10 +161,11 @@ async def download_task_artifact(task_id: str, artifact_id: str):
 
 
 @router.get("/{task_id}/timeline")
-async def get_task_timeline(task_id: str):
-    task = await platform.task_store.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+async def get_task_timeline(
+    task_id: str,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
+    task = await _task_for_tenant(task_id, auth.tenant_id)
     messages = await platform.task_store.get_messages(task_id)
     ctx = TaskContext.model_validate(task.context or {})
     events = []
@@ -203,10 +220,11 @@ async def get_task_timeline(task_id: str):
 
 
 @router.get("/{task_id}/usage")
-async def get_task_usage(task_id: str):
-    task = await platform.task_store.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+async def get_task_usage(
+    task_id: str,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
+    task = await _task_for_tenant(task_id, auth.tenant_id)
     ctx = TaskContext.model_validate(task.context or {})
     entries = [item.model_dump() for item in ctx.llm_usage]
     totals = merge_usage(ctx.llm_usage)
@@ -224,10 +242,11 @@ async def get_task_usage(task_id: str):
 
 
 @router.get("/{task_id}/workspace")
-async def get_task_workspace(task_id: str):
-    task = await platform.task_store.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+async def get_task_workspace(
+    task_id: str,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
+    task = await _task_for_tenant(task_id, auth.tenant_id)
     ctx = task.context or {}
     workspace = dict(ctx.get("workspace", {}))
     display_entries = _workspace_display_entries(task)
@@ -245,17 +264,18 @@ async def get_task_workspace(task_id: str):
 
 
 @router.get("/{task_id}/stream")
-async def stream_task(task_id: str, _: None = Depends(verify_api_key)):
+async def stream_task(
+    task_id: str,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
     from fastapi.responses import StreamingResponse
 
-    task = await platform.task_store.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+    await _task_for_tenant(task_id, auth.tenant_id)
 
     async def events():
         last: str | None = None
         while True:
-            current = await platform.task_store.get(task_id)
+            current = await platform.task_store.get(task_id, tenant_id=auth.tenant_id)
             if not current:
                 yield f"data: {json.dumps({'error': 'not found'})}\n\n"
                 break
@@ -286,9 +306,17 @@ async def stream_task(task_id: str, _: None = Depends(verify_api_key)):
 
 
 @router.post("/{task_id}/resume")
-async def resume_task(task_id: str, req: ResumeTaskRequest | None = None):
+async def resume_task(
+    task_id: str,
+    req: ResumeTaskRequest | None = None,
+    auth: AuthContext = Depends(require_role(Role.OPERATOR)),
+):
     from_assignment = req.from_assignment if req else ""
-    task = await platform.resume_task(task_id, from_assignment=from_assignment)
+    task = await platform.resume_task(
+        task_id,
+        from_assignment=from_assignment,
+        tenant_id=auth.tenant_id,
+    )
     if not task:
         raise HTTPException(
             status_code=409,
@@ -298,16 +326,23 @@ async def resume_task(task_id: str, req: ResumeTaskRequest | None = None):
 
 
 @router.post("/{task_id}/cancel")
-async def cancel_task(task_id: str):
-    task = await platform.cancel_task(task_id)
+async def cancel_task(
+    task_id: str,
+    auth: AuthContext = Depends(require_role(Role.OPERATOR)),
+):
+    task = await platform.cancel_task(task_id, tenant_id=auth.tenant_id)
     if not task:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
     return {"task": task.model_dump()}
 
 
 @router.post("/{task_id}/approve")
-async def approve_task(task_id: str, req: ApprovalRequest):
-    task = await platform.approve_task(task_id, req.action)
+async def approve_task(
+    task_id: str,
+    req: ApprovalRequest,
+    auth: AuthContext = Depends(require_role(Role.OPERATOR)),
+):
+    task = await platform.approve_task(task_id, req.action, tenant_id=auth.tenant_id)
     if not task:
         raise HTTPException(
             status_code=409,
@@ -319,11 +354,13 @@ async def approve_task(task_id: str, req: ApprovalRequest):
 @router.post("", response_model=TaskResponse)
 async def submit_task(
     req: TaskRequest,
+    auth: AuthContext = Depends(require_role(Role.OPERATOR)),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     task, message = await platform.submit_task(
         req.task,
         idempotency_key or "",
+        tenant_id=auth.tenant_id,
         template_id=req.template_id,
         custom_plan=req.custom_plan,
         collaboration_mode=req.collaboration_mode,

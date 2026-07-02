@@ -28,6 +28,80 @@ def test_estimate_cost():
 
 
 @pytest.mark.asyncio
+async def test_llm_chat_records_usage(db_path):
+    from backend.agents.research import ResearchAgent
+    from backend.core.llm import LLMClient
+    from backend.core.message_bus import InMemoryMessageBus
+    from backend.core.registry import AgentRegistry
+    from backend.core.services import AgentServices
+    from backend.core.shared_memory import InMemorySharedMemory
+    from backend.core.task_store import TaskStore
+    from backend.models.message import Message, MessageType
+    from backend.tools.registry import ToolRegistry
+
+    store = TaskStore(db_path)
+    await store.connect()
+    task = await store.create("token test")
+    recorded: list = []
+
+    async def record_usage(task_id: str, agent: str, entry) -> None:
+        recorded.append((task_id, agent, entry))
+
+    registry = AgentRegistry(db_path.replace("tasks", "registry"))
+    await registry.connect()
+    bus = InMemoryMessageBus()
+    await bus.connect()
+    services = AgentServices(
+        bus=bus,
+        registry=registry,
+        llm=LLMClient(),
+        shared_memory=InMemorySharedMemory(),
+        tools=ToolRegistry(),
+        task_store=store,
+        record_llm_usage=record_usage,
+    )
+    agent = ResearchAgent(services)
+    await agent.register()
+    await agent.start()
+    agent._current_task_id = task.id
+
+    async def fake_chat(*args, **kwargs):
+        kwargs.setdefault("agent", "")
+        kwargs.setdefault("on_usage", None)
+        if kwargs.get("on_usage") and kwargs.get("agent"):
+            from backend.core.llm_usage import LLMUsageEntry
+
+            await kwargs["on_usage"](
+                LLMUsageEntry(
+                    agent=kwargs["agent"],
+                    prompt_tokens=10,
+                    completion_tokens=5,
+                    total_tokens=15,
+                    model="test",
+                )
+            )
+        return "ok"
+
+    services.llm.chat = fake_chat  # type: ignore[method-assign]
+    msg = Message(
+        from_agent="Planner",
+        to_agent="Research",
+        content="调研 YOLO",
+        message_type=MessageType.TASK,
+        task_id=task.id,
+    )
+    await agent.think(msg)
+    await agent.stop()
+    await bus.disconnect()
+    await registry.disconnect()
+    await store.disconnect()
+
+    assert recorded
+    assert recorded[0][1] == "Research"
+    assert recorded[0][2].total_tokens == 15
+
+
+@pytest.mark.asyncio
 async def test_task_context_stores_llm_usage(db_path):
     from backend.core.task_store import TaskStore
 

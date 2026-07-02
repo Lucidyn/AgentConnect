@@ -2,13 +2,13 @@
 
 from fastapi import APIRouter, Depends
 
-from backend.auth import verify_api_key
+from backend.auth import get_auth_context
 from backend.platform import platform
 
 router = APIRouter(
     prefix="/agents",
     tags=["agents"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(get_auth_context)],
 )
 
 

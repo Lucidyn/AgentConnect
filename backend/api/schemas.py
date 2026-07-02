@@ -47,3 +47,18 @@ class MemoryQueryRequest(BaseModel):
 
 class ApprovalRequest(BaseModel):
     action: Literal["approve", "reject", "retry"]
+
+
+class CreateTenantRequest(BaseModel):
+    tenant_id: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    name: str = Field(..., min_length=1, max_length=120)
+
+
+class CreateApiKeyRequest(BaseModel):
+    name: str = Field(default="", max_length=80)
+    role: Literal["viewer", "operator", "admin"] = "operator"
+
+
+class A2ATaskSendRequest(BaseModel):
+    id: str = Field(default="", max_length=64)
+    message: dict

@@ -146,9 +146,10 @@ class PipelineProfiler:
             fallback: str = "",
             *,
             role: str = "default",
+            **kwargs,
         ):
             t0 = time.perf_counter()
-            result = await original(system_prompt, user_prompt, fallback, role=role)
+            result = await original(system_prompt, user_prompt, fallback, role=role, **kwargs)
             used_fallback = result == fallback or not llm.available
             self.llm_calls.append(
                 LLMCallRecord(

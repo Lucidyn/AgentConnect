@@ -22,22 +22,28 @@ class TaskQueue:
         self._max = settings.max_concurrent_tasks
 
     async def enqueue(
-        self, user_input: str, idempotency_key: str | None = None
+        self, user_input: str, idempotency_key: str | None = None, tenant_id: str = "default"
     ) -> tuple[TaskRecord, bool]:
         if idempotency_key:
-            existing = await self._store.get_by_idempotency_key(idempotency_key)
+            existing = await self._store.get_by_idempotency_key(idempotency_key, tenant_id=tenant_id)
             if existing:
                 return existing, False
 
         active = await self._store.count_active()
         if active >= self._max:
             task = await self._store.create(
-                user_input, status=TaskStatus.QUEUED, idempotency_key=idempotency_key
+                user_input,
+                status=TaskStatus.QUEUED,
+                idempotency_key=idempotency_key,
+                tenant_id=tenant_id,
             )
             logger.info("Task %s queued (%d/%d active)", task.id, active, self._max)
             return task, False
         task = await self._store.create(
-            user_input, status=TaskStatus.SUBMITTED, idempotency_key=idempotency_key
+            user_input,
+            status=TaskStatus.SUBMITTED,
+            idempotency_key=idempotency_key,
+            tenant_id=tenant_id,
         )
         return task, True
 

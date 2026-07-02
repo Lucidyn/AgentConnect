@@ -1,4 +1,4 @@
-"""User-saved plan templates (simple JSON files on disk)."""
+"""User-saved plan templates (tenant-scoped JSON files on disk)."""
 
 from __future__ import annotations
 
@@ -10,12 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from backend.config import settings
+from backend.models.auth import DEFAULT_TENANT_ID
 
 logger = logging.getLogger(__name__)
 
 
-def _saved_dir() -> Path:
-    path = Path(settings.saved_templates_dir)
+def _saved_dir(tenant_id: str = DEFAULT_TENANT_ID) -> Path:
+    path = Path(settings.saved_templates_dir) / tenant_id
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -25,9 +26,9 @@ def _slug(name: str) -> str:
     return slug[:48] or "template"
 
 
-def list_saved() -> list[dict[str, Any]]:
+def list_saved(tenant_id: str = DEFAULT_TENANT_ID) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
-    for path in sorted(_saved_dir().glob("*.json")):
+    for path in sorted(_saved_dir(tenant_id).glob("*.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             items.append(
@@ -45,18 +46,24 @@ def list_saved() -> list[dict[str, Any]]:
     return items
 
 
-def get_saved(template_id: str) -> dict[str, Any] | None:
-    path = _saved_dir() / f"{template_id}.json"
+def get_saved(template_id: str, tenant_id: str = DEFAULT_TENANT_ID) -> dict[str, Any] | None:
+    path = _saved_dir(tenant_id) / f"{template_id}.json"
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def save_template(*, name: str, plan: dict[str, Any], description: str = "") -> dict[str, Any]:
+def save_template(
+    *,
+    name: str,
+    plan: dict[str, Any],
+    description: str = "",
+    tenant_id: str = DEFAULT_TENANT_ID,
+) -> dict[str, Any]:
     template_id = _slug(name)
     base = template_id
     counter = 2
-    while (_saved_dir() / f"{template_id}.json").exists():
+    while (_saved_dir(tenant_id) / f"{template_id}.json").exists():
         template_id = f"{base}-{counter}"
         counter += 1
     payload = {
@@ -64,15 +71,16 @@ def save_template(*, name: str, plan: dict[str, Any], description: str = "") -> 
         "name": name.strip() or template_id,
         "description": description.strip(),
         "plan": plan,
+        "tenant_id": tenant_id,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    path = _saved_dir() / f"{template_id}.json"
+    path = _saved_dir(tenant_id) / f"{template_id}.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 
 
-def delete_saved(template_id: str) -> bool:
-    path = _saved_dir() / f"{template_id}.json"
+def delete_saved(template_id: str, tenant_id: str = DEFAULT_TENANT_ID) -> bool:
+    path = _saved_dir(tenant_id) / f"{template_id}.json"
     if not path.exists():
         return False
     path.unlink()

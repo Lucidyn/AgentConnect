@@ -45,4 +45,4 @@ def test_submit_with_template_id(api_client, monkeypatch):
     task_id = res.json()["task_id"]
     task = api_client.get(f"/tasks/{task_id}").json()["task"]
     assert task["context"]["template_id"] == "research_write_translate"
-    assert task["context"]["collaboration_mode"] == "blackboard"
+    assert task["context"]["collaboration_mode"] == "planner"

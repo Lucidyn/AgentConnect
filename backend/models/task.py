@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from backend.models.auth import DEFAULT_TENANT_ID
 from pydantic import BaseModel, Field
 
 
@@ -19,6 +20,7 @@ class TaskStatus(str, Enum):
 
 class TaskRecord(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
+    tenant_id: str = DEFAULT_TENANT_ID
     input: str
     status: TaskStatus = TaskStatus.SUBMITTED
     plan: dict[str, Any] | None = None

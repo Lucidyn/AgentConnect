@@ -45,11 +45,12 @@ class ResearchAgent(Agent):
             prompt_parts.append(f"相关共享记忆：\n{shared_context}")
 
         fallback = tool_context or self._fallback_research(task)
-        result = await self.llm.chat(
+        result = await self.llm_chat(
             SYSTEM_PROMPT,
             "\n\n".join(prompt_parts),
             fallback,
             role=self.role,
+            message=message,
         )
 
         await self.shared_memory.store(

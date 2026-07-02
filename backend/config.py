@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     api_key: str = ""
+    api_key_salt: str = "agent-connect"
+    multi_tenant: bool = True
 
     registry_db_path: str = "data/registry.db"
     tasks_db_path: str = "data/tasks.db"

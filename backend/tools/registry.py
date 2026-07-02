@@ -12,6 +12,7 @@ from backend.tools.github import GitHubTool
 logger = logging.getLogger(__name__)
 
 _ARXIV_HINTS = ("论文", "paper", "arxiv", "research", "学术", "期刊")
+_GITHUB_HINTS = ("github", "开源", "repo", "repository", "项目", "库", "implement", "code")
 _HTTP_HINTS = ("http://", "https://", "api ", "endpoint", "fetch ", "请求", "接口")
 
 

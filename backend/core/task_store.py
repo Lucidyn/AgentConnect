@@ -30,7 +30,7 @@ _RECOVER_STATUSES = _RUNNING_STATUSES + (TaskStatus.WAITING_APPROVAL,)
 
 _TASK_SELECT = """
     SELECT id, input, status, plan_json, result, created_at, updated_at,
-           context_json, error, idempotency_key, owner_replica
+           context_json, error, idempotency_key, owner_replica, tenant_id
     FROM tasks
 """
 
@@ -72,10 +72,11 @@ class TaskStore:
         if self._db and self._db.is_postgres:
             return """
             INSERT INTO tasks
-            (id, input, status, plan_json, context_json, result, error,
+            (id, tenant_id, input, status, plan_json, context_json, result, error,
              idempotency_key, owner_replica, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 input = EXCLUDED.input,
                 status = EXCLUDED.status,
                 plan_json = EXCLUDED.plan_json,
@@ -88,9 +89,9 @@ class TaskStore:
             """
         return """
             INSERT OR REPLACE INTO tasks
-            (id, input, status, plan_json, context_json, result, error,
+            (id, tenant_id, input, status, plan_json, context_json, result, error,
              idempotency_key, owner_replica, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
 
     def _upsert_message_sql(self) -> str:
@@ -134,35 +135,55 @@ class TaskStore:
         user_input: str,
         status: TaskStatus = TaskStatus.SUBMITTED,
         idempotency_key: str | None = None,
+        tenant_id: str = "default",
     ) -> TaskRecord:
-        task = TaskRecord(input=user_input, status=status, idempotency_key=idempotency_key)
+        task = TaskRecord(
+            input=user_input,
+            status=status,
+            idempotency_key=idempotency_key,
+            tenant_id=tenant_id,
+        )
         await self._save(task)
         return task
 
-    async def get_by_idempotency_key(self, key: str) -> TaskRecord | None:
+    async def get_by_idempotency_key(
+        self, key: str, tenant_id: str = "default"
+    ) -> TaskRecord | None:
         if not key:
             return None
         assert self._db is not None
         row = await self._db.fetchone(
-            f"{_TASK_SELECT.strip()} WHERE idempotency_key = ?",
-            (key,),
+            f"{_TASK_SELECT.strip()} WHERE tenant_id = ? AND idempotency_key = ?",
+            (tenant_id, key),
         )
         return self._row_to_task(row) if row else None
 
-    async def get(self, task_id: str) -> TaskRecord | None:
+    async def get(self, task_id: str, tenant_id: str | None = None) -> TaskRecord | None:
         assert self._db is not None
-        row = await self._db.fetchone(
-            f"{_TASK_SELECT.strip()} WHERE id = ?",
-            (task_id,),
-        )
+        if tenant_id:
+            row = await self._db.fetchone(
+                f"{_TASK_SELECT.strip()} WHERE id = ? AND tenant_id = ?",
+                (task_id, tenant_id),
+            )
+        else:
+            row = await self._db.fetchone(
+                f"{_TASK_SELECT.strip()} WHERE id = ?",
+                (task_id,),
+            )
         return self._row_to_task(row) if row else None
 
-    async def list_tasks(self, limit: int = 20) -> list[TaskRecord]:
+    async def list_tasks(self, limit: int = 20, tenant_id: str | None = None) -> list[TaskRecord]:
         assert self._db is not None
-        rows = await self._db.fetchall(
-            f"{_TASK_SELECT.strip()} ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        )
+        if tenant_id:
+            rows = await self._db.fetchall(
+                f"{_TASK_SELECT.strip()} WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ?",
+                (tenant_id, limit),
+            )
+        else:
+            rows = await self._db.fetchall(
+                f"{_TASK_SELECT.strip()} ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
         return [self._row_to_task(row) for row in rows]
 
     async def recover_stale_tasks(self) -> None:
@@ -263,7 +284,7 @@ class TaskStore:
                 LIMIT 1
             )
             RETURNING id, input, status, plan_json, result, created_at, updated_at,
-                      context_json, error, idempotency_key, owner_replica
+                      context_json, error, idempotency_key, owner_replica, tenant_id
             """
         else:
             sql = f"""
@@ -273,7 +294,7 @@ class TaskStore:
                 SELECT id FROM tasks WHERE status = ? ORDER BY created_at LIMIT 1
             )
             RETURNING id, input, status, plan_json, result, created_at, updated_at,
-                      context_json, error, idempotency_key, owner_replica
+                      context_json, error, idempotency_key, owner_replica, tenant_id
             """
         row = await self._db.fetchone(
             sql,
@@ -479,6 +500,7 @@ class TaskStore:
             self._upsert_task_sql(),
             (
                 task.id,
+                task.tenant_id,
                 task.input,
                 task.status.value,
                 json.dumps(task.plan, ensure_ascii=False) if task.plan else None,
@@ -513,6 +535,7 @@ class TaskStore:
             error=row[8],
             idempotency_key=row[9] if len(row) > 9 else None,
             owner_replica=row[10] if len(row) > 10 else None,
+            tenant_id=row[11] if len(row) > 11 else "default",
         )
 
     @staticmethod

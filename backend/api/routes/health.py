@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse, Response
 
-from backend.auth import verify_api_key
+from backend.auth import get_auth_context
 from backend.config import settings
 from backend.core.metrics import metrics_response
 from backend.core.replica import get_replica_id
@@ -17,7 +17,7 @@ router = APIRouter(tags=["health"])
 STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
 
 
-@router.get("/metrics", dependencies=[Depends(verify_api_key)])
+@router.get("/metrics", dependencies=[Depends(get_auth_context)])
 async def metrics():
     await platform.refresh_metrics()
     body, content_type = metrics_response()

@@ -4,17 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Agent Connect — 多智能体协作平台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="/static/css/app.css" />
   <script type="module" src="/static/assets/app.js"></script>
 </head>
 <body>
-  <header>
-    <h1><span>Agent</span> Connect</h1>
-    <div style="display:flex;align-items:center;gap:12px;">
-      <input id="api-key-input" type="password" placeholder="API Key (可选)"
-        style="width:140px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:0.75rem;" />
-      <div id="connection-status">
+  <header class="header-bar">
+    <div class="brand">
+      <div class="brand-mark">AC</div>
+      <h1><span>Agent</span> Connect</h1>
+    </div>
+    <div class="header-actions">
+      <input id="api-key-input" class="api-key-input" type="password" placeholder="API Key (可选)" />
+      <div id="connection-status" class="connection-pill">
         <span class="status-dot offline" id="status-dot"></span>
         <span id="status-text">连接中...</span>
       </div>
@@ -23,7 +28,7 @@
   <div id="toast" class="toast" style="display:none"></div>
 
   <main>
-    <div class="panel" id="agents-panel">
+    <div class="panel agents-panel" id="agents-panel">
       <h2>Agents</h2>
       <div id="agents-list"><div class="empty">加载中...</div></div>
     </div>
@@ -40,7 +45,7 @@
             <option value="">自动计划 (Planner LLM)</option>
           </select>
         </div>
-        <div class="task-input">
+        <div class="task-input task-input-bar">
           <div class="task-input-wrap">
             <input
               id="task-input"
@@ -54,7 +59,7 @@
           <button id="submit-btn" type="button" onclick="submitTask()">提交任务</button>
         </div>
 
-        <div class="topology" id="topology">
+        <div class="topology topo-card" id="topology">
           <div class="topo-node planner" id="node-User">User</div>
           <div class="topo-arrow">↓</div>
           <div class="topo-node planner" id="node-Planner">Planner</div>
@@ -66,7 +71,7 @@
           </div>
         </div>
 
-        <div class="messages" id="messages">
+        <div class="messages messages-panel" id="messages">
           <div class="empty">等待消息...</div>
         </div>
       </div>
@@ -108,34 +113,42 @@
       </div>
     </div>
 
-    <div class="panel">
-      <h2>平台状态</h2>
-      <div class="detail-section">
-        <div class="stat"><span>Agent 数量</span><span class="value" id="stat-agents">-</span></div>
-        <div class="stat"><span>消息总数</span><span class="value" id="stat-messages">0</span></div>
-        <div class="stat"><span>LLM</span><span class="value" id="stat-llm">-</span></div>
-        <div class="stat"><span>当前任务</span><span class="value" id="stat-task">-</span></div>
-        <div class="stat"><span>队列</span><span class="value" id="stat-queue">-</span></div>
-        <div class="stat"><span>消息总线</span><span class="value" id="stat-bus">Redis</span></div>
+    <div class="panel sidebar-panel">
+      <div class="sidebar-section">
+        <h2>平台状态</h2>
+        <div class="stats-grid">
+          <div class="stat-card"><span class="stat-label">Agents</span><span class="stat-value" id="stat-agents">-</span></div>
+          <div class="stat-card"><span class="stat-label">消息</span><span class="stat-value" id="stat-messages">0</span></div>
+          <div class="stat-card"><span class="stat-label">LLM</span><span class="stat-value" id="stat-llm">-</span></div>
+          <div class="stat-card"><span class="stat-label">任务</span><span class="stat-value" id="stat-task">-</span></div>
+          <div class="stat-card"><span class="stat-label">队列</span><span class="stat-value" id="stat-queue">-</span></div>
+          <div class="stat-card"><span class="stat-label">总线</span><span class="stat-value" id="stat-bus">Redis</span></div>
+        </div>
       </div>
 
-      <h2>任务历史</h2>
-      <div id="task-history" class="task-history"><div class="empty">暂无任务</div></div>
+      <div class="sidebar-section">
+        <h2>任务历史</h2>
+        <div id="task-history" class="task-history"><div class="empty">暂无任务</div></div>
+      </div>
 
       <div id="queue-banner" class="queue-banner"></div>
 
-      <h2 style="margin-top:1.5rem">任务时间线</h2>
-      <div id="timeline" class="timeline"><div class="empty">提交任务后显示</div></div>
+      <div class="sidebar-section">
+        <h2>任务时间线</h2>
+        <div id="timeline" class="timeline"><div class="empty">提交任务后显示</div></div>
+      </div>
 
-      <h2 style="margin-top:1.5rem">任务结果</h2>
-      <div id="task-usage" class="task-usage"><div class="empty">Token 用量在任务执行后显示</div></div>
-      <div id="task-result" class="result-panel">
-        <div class="empty">任务完成后在此显示汇总与分步产出</div>
+      <div class="sidebar-section">
+        <h2>任务结果</h2>
+        <div id="task-usage" class="task-usage"><div class="empty subtle">Token 用量在任务执行后显示</div></div>
+        <div id="task-result" class="result-panel">
+          <div class="empty subtle">任务完成后在此显示汇总与分步产出</div>
+        </div>
       </div>
 
       <div id="approval-box" class="approval-box">
         <strong>需要人工决定</strong>
-        <p id="approval-hint" style="font-size:0.7rem;color:var(--muted);margin:4px 0 6px">
+        <p id="approval-hint" class="approval-hint">
           自动重试已达上限。请选择：放行继续、退回修改，或终止任务。
         </p>
         <p id="approval-msg"></p>
@@ -146,23 +159,15 @@
         </div>
       </div>
 
-      <h2 style="margin-top:1.5rem">快速任务</h2>
-      <div id="quick-tasks" class="quick-tasks">
-        <button type="button" class="quick-btn" data-task="查一下 YOLO 最新论文并实现检测服务" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
-          YOLO 检测服务
-        </button>
-        <button type="button" class="quick-btn" data-task="调研 Qwen-VL 多模态能力，分析竞品并写 Demo" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
-          Qwen-VL Demo
-        </button>
-        <button type="button" class="quick-btn" data-template="research_write_translate" data-task="调研 AI Agent 趋势并写中文稿再译成英文" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
-          调研+写作+翻译
-        </button>
-        <button type="button" class="quick-btn" data-template="hybrid_report" data-task="做一份大模型行业分析报告" style="width:100%;margin-bottom:6px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
-          跨领域混合报告
-        </button>
-        <button type="button" class="quick-btn" data-task="实现船舶图像识别 API" style="width:100%;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:0.8rem;text-align:left;">
-          船舶识别 API
-        </button>
+      <div class="sidebar-section">
+        <h2>快速任务</h2>
+        <div id="quick-tasks" class="quick-tasks">
+          <button type="button" class="quick-btn" data-task="查一下 YOLO 最新论文并实现检测服务">YOLO 检测服务</button>
+          <button type="button" class="quick-btn" data-task="调研 Qwen-VL 多模态能力，分析竞品并写 Demo">Qwen-VL Demo</button>
+          <button type="button" class="quick-btn" data-template="research_write_translate" data-task="调研 AI Agent 趋势并写中文稿再译成英文">调研+写作+翻译</button>
+          <button type="button" class="quick-btn" data-template="hybrid_report" data-task="做一份大模型行业分析报告">跨领域混合报告</button>
+          <button type="button" class="quick-btn" data-task="实现船舶图像识别 API">船舶识别 API</button>
+        </div>
       </div>
     </div>
   </main>
@@ -418,13 +423,17 @@
 
       data.agents.forEach(agent => {
         const caps = agent.capabilities.map(c => `<span class="cap">${c}</span>`).join('');
-        const role = roleMap[agent.role] || agent.role;
+        const busy = ['running', 'thinking'].includes(agent.status);
+        const idle = agent.status === 'idle';
+        const pillClass = busy ? 'busy' : idle ? 'idle' : '';
         list.innerHTML += `
           <div class="agent-card" data-role="${agent.role}">
-            <div class="name">${agent.name}</div>
+            <div class="agent-card-head">
+              <div class="name">${agent.name}</div>
+              <div class="agent-status"><span class="status-pill ${pillClass}"></span>${agent.status}</div>
+            </div>
             <div class="role">${agent.role}</div>
             <div class="caps">${caps}</div>
-            <div class="agent-status">● ${agent.status}</div>
           </div>
         `;
       });
@@ -460,6 +469,19 @@
       return 'running';
     }
 
+    function finalResultText(task, status) {
+      const summary = (task.result || '').trim();
+      const error = (task.error || '').trim();
+      if (status === 'failed' || status === 'cancelled') return error || summary;
+      if (status === 'waiting_approval') {
+        return ((task.context && task.context.approval_message) || summary || '').trim();
+      }
+      if (['running', 'planning', 'submitted'].includes(status) && liveStreamText) {
+        return liveStreamText.trim();
+      }
+      return summary;
+    }
+
     function renderResultPanel(task, workspaceEntries, artifacts, usage) {
       const el = document.getElementById('task-result');
       const status = task.status || 'unknown';
@@ -493,7 +515,7 @@
 
       let stepsHtml = '';
       if (entries.length) {
-        stepsHtml = '<div class="result-steps">' + entries.map(entry => `
+        stepsHtml = '<div class="result-steps"><div class="result-steps-label">分步产出</div>' + entries.map(entry => `
           <div class="result-step">
             <div class="step-meta">${escapeHtml(entry.author || 'Agent')} · ${escapeHtml(entry.entry_type || 'output')}</div>
             <div class="step-content markdown-body">${renderMarkdown(entry.content || '')}</div>
@@ -501,7 +523,7 @@
         `).join('') + '</div>';
       }
 
-      const copyText = [summary, ...entries.map(e => `${e.author}:\n${e.content || ''}`)].filter(Boolean).join('\n\n---\n\n');
+      const copyText = finalResultText(task, status);
       const toggleLabel = resultExpanded ? '收起' : '展开全文';
       const artifactButtons = (artifacts || []).map(a => (
         `<button type="button" onclick="downloadArtifact('${task.id}', '${a.id}')">下载 ${escapeHtml(a.type || 'artifact')}</button>`
@@ -509,12 +531,15 @@
       const resumeBtn = (status === 'failed')
         ? `<button type="button" onclick="resumeTask()">续跑任务</button>`
         : '';
-      const usageHtml = usage && usage.totals
-        ? `<div class="usage-line">Token: ${usage.totals.total_tokens || 0} · 约 $${(usage.estimated_cost_usd || 0).toFixed(4)}</div>`
+      const usageHtml = '';
+      const finalHeader = copyText
+        ? `<div class="result-final-header">
+            <span class="result-final-title">最终结果</span>
+            <button type="button" class="copy-result-btn" onclick="copyTaskResult()">复制结果</button>
+          </div>`
         : '';
       const actionsHtml = `<div class="result-actions">
         <button type="button" onclick="toggleResultExpand()">${toggleLabel}</button>
-        ${copyText ? '<button type="button" onclick="copyTaskResult()">复制全部</button>' : ''}
         ${resumeBtn}
         ${artifactButtons}
       </div>`;
@@ -525,6 +550,7 @@
           <span class="badge ${statusBadgeClass(status)}">${escapeHtml(status)}</span>
         </div>
         ${usageHtml}
+        ${finalHeader}
         ${bodyHtml}
         ${stepsHtml}
         ${actionsHtml}
@@ -568,17 +594,25 @@
       const el = document.getElementById('task-result');
       const text = el.dataset.copyText || '';
       if (!text) return;
-      navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板', 'ok')).catch(() => showToast('复制失败', 'error'));
+      navigator.clipboard.writeText(text).then(() => showToast('已复制最终结果', 'ok')).catch(() => showToast('复制失败', 'error'));
     }
+    window.copyTaskResult = copyTaskResult;
 
     async function loadUsage(taskId) {
       const el = document.getElementById('task-usage');
       try {
         const res = await apiFetch(`/tasks/${taskId}/usage`, { silent: true });
-        if (!res.ok) return null;
+        if (!res.ok) {
+          el.innerHTML = '<div class="empty subtle">Token 用量在任务执行后显示</div>';
+          return null;
+        }
         const data = await res.json();
         const totals = data.totals || {};
-        el.innerHTML = `<div class="usage-line">LLM Token: ${totals.total_tokens || 0}（输入 ${totals.prompt_tokens || 0} / 输出 ${totals.completion_tokens || 0}） · 约 $${(data.estimated_cost_usd || 0).toFixed(4)}</div>`;
+        if (!totals.total_tokens && !totals.calls) {
+          el.innerHTML = '<div class="empty subtle">Token 用量在任务执行后显示</div>';
+          return data;
+        }
+        el.innerHTML = `<div class="usage-line"><span class="usage-icon">⚡</span> Token ${totals.total_tokens || 0}（输入 ${totals.prompt_tokens || 0} / 输出 ${totals.completion_tokens || 0}） · 约 $${(data.estimated_cost_usd || 0).toFixed(4)}</div>`;
         return data;
       } catch (e) {
         return null;

@@ -32,11 +32,12 @@ class AnalystAgent(Agent):
             parts.append(f"参考资料：\n{shared}")
 
         fallback = self._mock_analysis(task)
-        result = await self.llm.chat(
+        result = await self.llm_chat(
             SYSTEM_PROMPT,
             "\n\n".join(parts),
             fallback,
             role="analyst",
+            message=message,
         )
 
         await self.shared_memory.store(

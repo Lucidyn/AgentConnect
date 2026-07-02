@@ -130,6 +130,26 @@ CREATE TABLE IF NOT EXISTS agents (
 );
 """
 
+TENANTS_DDL = """
+CREATE TABLE IF NOT EXISTS tenants (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+"""
+
+API_KEYS_DDL = """
+CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'operator',
+    created_at TEXT NOT NULL,
+    revoked_at TEXT
+);
+"""
+
 
 async def init_schema(db: Database) -> None:
     if db.is_postgres:
@@ -138,17 +158,25 @@ async def init_schema(db: Database) -> None:
         await db.execute(ARTIFACTS_DDL_POSTGRES)
         await db.execute(OUTBOX_DDL_POSTGRES)
         await db.execute(AGENTS_DDL_POSTGRES)
+        await db.execute(TENANTS_DDL)
+        await db.execute(API_KEYS_DDL)
+        await db.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_replica TEXT")
+        await db.execute(
+            "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'"
+        )
+        await db.execute("DROP INDEX IF EXISTS idx_tasks_idempotency")
         await db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency "
-            "ON tasks(idempotency_key) WHERE idempotency_key IS NOT NULL"
+            "ON tasks(tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL"
         )
-        await db.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_replica TEXT")
     else:
         await db.execute(TASKS_DDL_SQLITE)
         await db.execute(MESSAGES_DDL_SQLITE)
         await db.execute(ARTIFACTS_DDL_SQLITE)
         await db.execute(OUTBOX_DDL_SQLITE)
         await db.execute(AGENTS_DDL_SQLITE)
+        await db.execute(TENANTS_DDL)
+        await db.execute(API_KEYS_DDL)
         rows = await db.fetchall("PRAGMA table_info(tasks)")
         columns = {row[1] for row in rows}
         if "owner_replica" not in columns:
@@ -159,13 +187,19 @@ async def init_schema(db: Database) -> None:
             await db.execute("ALTER TABLE tasks ADD COLUMN error TEXT")
         if "idempotency_key" not in columns:
             await db.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT")
-            await db.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency "
-                "ON tasks(idempotency_key) WHERE idempotency_key IS NOT NULL"
-            )
+        if "tenant_id" not in columns:
+            await db.execute("ALTER TABLE tasks ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
+        await db.execute("DROP INDEX IF EXISTS idx_tasks_idempotency")
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency "
+            "ON tasks(tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL"
+        )
 
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tasks_tenant_created ON tasks(tenant_id, created_at)"
     )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_task_messages_task_created "

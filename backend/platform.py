@@ -32,6 +32,8 @@ from backend.core.services import AgentServices
 from backend.core.shared_memory import SharedMemory, create_shared_memory
 from backend.core.task_queue import TaskQueue
 from backend.core.task_store import TaskStore
+from backend.core.tenant_store import TenantStore
+from backend.models.auth import DEFAULT_TENANT_ID
 from backend.core.worker_dispatcher import WorkerDispatcher
 from backend.core.worker_stream import create_worker_stream, default_consumer_name, parse_remote_agents
 from backend.models.message import Message, MessageIntent, MessageType
@@ -49,6 +51,7 @@ class Platform:
         self.bus: MessageBus | None = None
         self.registry = AgentRegistry()
         self.task_store = TaskStore()
+        self.tenant_store: TenantStore | None = None
         self.message_outbox = MessageOutbox()
         self.task_queue: TaskQueue | None = None
         self.llm = LLMClient()
@@ -79,6 +82,9 @@ class Platform:
         # Re-read paths from settings on each start (supports test isolation).
         self._database = await create_database()
         await init_schema(self._database)
+        self.tenant_store = TenantStore(self._database)
+        if settings.multi_tenant:
+            await self.tenant_store.ensure_default_tenant()
         self.task_store = TaskStore(self._database)
         self.message_outbox = MessageOutbox(self._database)
         self.registry = AgentRegistry(self._database)
@@ -334,6 +340,7 @@ class Platform:
         user_input: str,
         idempotency_key: str = "",
         *,
+        tenant_id: str = DEFAULT_TENANT_ID,
         template_id: str = "",
         custom_plan: dict | None = None,
         collaboration_mode: str = "",
@@ -343,7 +350,9 @@ class Platform:
             raise RuntimeError("Platform not started")
 
         key = idempotency_key.strip() or None
-        task, should_start = await self.task_queue.enqueue(user_input, idempotency_key=key)
+        task, should_start = await self.task_queue.enqueue(
+            user_input, idempotency_key=key, tenant_id=tenant_id
+        )
 
         ctx_updates: dict = {}
         if template_id:
@@ -385,8 +394,10 @@ class Platform:
         OUTBOX_PENDING.set(stats.get("pending", 0))
         OUTBOX_FAILED.set(stats.get("failed", 0))
 
-    async def approve_task(self, task_id: str, action: str) -> TaskRecord | None:
-        task = await self.task_store.get(task_id)
+    async def approve_task(
+        self, task_id: str, action: str, tenant_id: str | None = None
+    ) -> TaskRecord | None:
+        task = await self.task_store.get(task_id, tenant_id=tenant_id)
         if not task or task.status != TaskStatus.WAITING_APPROVAL:
             return None
         if not self.bus:
@@ -408,12 +419,12 @@ class Platform:
         ).with_trace()
         await self.bus.publish(message)
         await self.task_store.log_message(message)
-        return await self.task_store.get(task_id)
+        return await self.task_store.get(task_id, tenant_id=tenant_id)
 
     async def resume_task(
-        self, task_id: str, from_assignment: str = ""
+        self, task_id: str, from_assignment: str = "", tenant_id: str | None = None
     ) -> TaskRecord | None:
-        task = await self.task_store.get(task_id)
+        task = await self.task_store.get(task_id, tenant_id=tenant_id)
         if not task or not self.bus:
             return None
         if task.status not in (
@@ -435,10 +446,10 @@ class Platform:
         ).with_trace()
         await self.bus.publish(message)
         await self.task_store.log_message(message)
-        return await self.task_store.get(task_id)
+        return await self.task_store.get(task_id, tenant_id=tenant_id)
 
-    async def cancel_task(self, task_id: str) -> TaskRecord | None:
-        task = await self.task_store.get(task_id)
+    async def cancel_task(self, task_id: str, tenant_id: str | None = None) -> TaskRecord | None:
+        task = await self.task_store.get(task_id, tenant_id=tenant_id)
         if not task:
             return None
         if task.status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED):

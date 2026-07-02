@@ -31,7 +31,7 @@ class TranslatorAgent(Agent):
 
         fallback = self._mock_translation(task)
         user_prompt = task if not context_parts else f"{task}\n\n" + "\n\n".join(context_parts)
-        result = await self.llm.chat(SYSTEM_PROMPT, user_prompt, fallback, role=self.role)
+        result = await self.llm_chat(SYSTEM_PROMPT, user_prompt, fallback, role=self.role, message=message)
 
         await self.shared_memory.store(
             content=result,

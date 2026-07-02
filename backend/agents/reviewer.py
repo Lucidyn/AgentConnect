@@ -27,11 +27,12 @@ class ReviewerAgent(Agent):
         content = message.content
         fallback = self._mock_review(content)
 
-        result = await self.llm.chat(
+        result = await self.llm_chat(
             SYSTEM_PROMPT,
             f"请审查以下内容：\n{content}",
             fallback,
             role=self.role,
+            message=message,
         )
 
         self.remember("last_review", result)

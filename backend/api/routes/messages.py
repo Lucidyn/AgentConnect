@@ -3,13 +3,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.api.deps import clamp_limit
-from backend.auth import verify_api_key
+from backend.auth import get_auth_context
 from backend.platform import platform
 
 router = APIRouter(
     prefix="/messages",
     tags=["messages"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(get_auth_context)],
 )
 
 

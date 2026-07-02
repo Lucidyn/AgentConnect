@@ -239,6 +239,16 @@ class Agent(ABC):
 
     async def ask_agent(self, to_agent: str, question: str, reply_to: str = "") -> Message:
         """Ask another agent a bounded question within the current task thread."""
+        from backend.core.a2a_policy import check_a2a_query, record_a2a_query
+
+        task_id = self._current_task_id
+        task = await self.task_store.get(task_id) if task_id and self.task_store else None
+        ctx = dict(task.context or {}) if task else {}
+        err = check_a2a_query(self.name, to_agent, ctx)
+        if err:
+            raise ValueError(err)
+        if task and self.task_store:
+            await self.task_store.save_context(task_id, record_a2a_query(ctx))
         return await self.send(
             to_agent,
             question,
