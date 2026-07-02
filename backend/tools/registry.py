@@ -34,7 +34,10 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if not tool:
             return ToolResult(name, False, f"Unknown tool: {name}")
-        return await tool.run(query)
+        from backend.core.otel import start_tool_span
+
+        with start_tool_span(name):
+            return await tool.run(query)
 
     def select_for_task(self, task: str) -> list[str]:
         task_lower = task.lower()

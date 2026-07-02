@@ -13,6 +13,7 @@ from backend.core.db.base import Database, create_database
 from backend.core.db.schema import init_schema
 from backend.core.metrics import TASKS_FINISHED
 from backend.core.replica import get_replica_id
+from backend.models.auth import DEFAULT_TENANT_ID
 from backend.models.artifact import Artifact
 from backend.models.message import Message
 from backend.models.task import TaskRecord, TaskStatus
@@ -388,23 +389,25 @@ class TaskStore:
 
     async def save_result(self, task_id: str, result: str) -> None:
         assert self._db is not None
+        task = await self.get(task_id)
+        tenant_id = task.tenant_id if task else DEFAULT_TENANT_ID
         await self._db.execute(
             "UPDATE tasks SET result = ?, status = ?, updated_at = ? WHERE id = ?",
             (result, TaskStatus.COMPLETED.value, self._ts(), task_id),
         )
         await self._db.commit()
-        if TASKS_FINISHED:
-            TASKS_FINISHED.labels(status="completed").inc()
+        TASKS_FINISHED.labels(status="completed", tenant_id=tenant_id).inc()
 
     async def mark_failed(self, task_id: str, error: str) -> None:
         assert self._db is not None
+        task = await self.get(task_id)
+        tenant_id = task.tenant_id if task else DEFAULT_TENANT_ID
         await self._db.execute(
             "UPDATE tasks SET error = ?, status = ?, updated_at = ? WHERE id = ?",
             (error, TaskStatus.FAILED.value, self._ts(), task_id),
         )
         await self._db.commit()
-        if TASKS_FINISHED:
-            TASKS_FINISHED.labels(status="failed").inc()
+        TASKS_FINISHED.labels(status="failed", tenant_id=tenant_id).inc()
 
     async def log_message(self, message: Message) -> None:
         if not message.task_id:

@@ -629,8 +629,11 @@
       const artifactButtons = (artifacts || []).map(a => (
         `<button type="button" onclick="downloadArtifact('${task.id}', '${a.id}')">下载 ${escapeHtml(a.type || 'artifact')}</button>`
       )).join('');
-      const resumeBtn = (status === 'failed')
+      const resumeBtn = (status === 'failed' || status === 'completed')
         ? `<button type="button" onclick="resumeTask()">续跑任务</button>`
+        : '';
+      const checkpointBtn = currentTaskId
+        ? `<button type="button" onclick="loadCheckpoints('${task.id}')">检查点</button>`
         : '';
       const usageHtml = '';
       const finalHeader = copyText
@@ -642,6 +645,7 @@
       const actionsHtml = `<div class="result-actions">
         <button type="button" onclick="toggleResultExpand()">${toggleLabel}</button>
         ${resumeBtn}
+        ${checkpointBtn}
         ${artifactButtons}
       </div>`;
 
@@ -720,9 +724,13 @@
       }
     }
 
-    async function resumeTask() {
+    async function resumeTask(fromAssignment = '') {
       if (!currentTaskId) return;
-      const res = await apiFetch(`/tasks/${currentTaskId}/resume`, { method: 'POST', body: '{}' });
+      const body = fromAssignment ? { from_assignment: fromAssignment } : {};
+      const res = await apiFetch(`/tasks/${currentTaskId}/resume`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
       if (res.ok) {
         showToast('任务已续跑', 'ok');
         watchTask(currentTaskId);
@@ -731,6 +739,38 @@
       }
     }
     window.resumeTask = resumeTask;
+
+    async function replayCheckpoint(checkpointId) {
+      if (!currentTaskId) return;
+      const res = await apiFetch(`/tasks/${currentTaskId}/replay`, {
+        method: 'POST',
+        body: JSON.stringify({ checkpoint_id: checkpointId }),
+      });
+      if (res.ok) {
+        showToast('已从检查点重放', 'ok');
+        watchTask(currentTaskId);
+      } else {
+        showToast('重放失败', 'error');
+      }
+    }
+    window.replayCheckpoint = replayCheckpoint;
+
+    async function loadCheckpoints(taskId) {
+      const res = await apiFetch(`/tasks/${taskId}/checkpoints`, { silent: true });
+      if (!res.ok) return showToast('无法加载检查点', 'error');
+      const data = await res.json();
+      const list = data.checkpoints || [];
+      if (!list.length) return showToast('暂无检查点', 'info');
+      const el = document.getElementById('task-result');
+      if (!el) return;
+      const html = `<div class="result-steps"><div class="result-steps-label">检查点 / 重放</div>` +
+        list.map(cp => `<div class="result-step">
+          <div class="step-meta">${escapeHtml(cp.label || cp.assignment_id)} · ${escapeHtml(cp.created_at || '')}</div>
+          <button type="button" onclick="replayCheckpoint('${cp.id}')">从此处重放</button>
+        </div>`).join('') + `</div>`;
+      el.insertAdjacentHTML('beforeend', html);
+    }
+    window.loadCheckpoints = loadCheckpoints;
 
     async function loadResult(taskId) {
       try {

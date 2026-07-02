@@ -197,6 +197,10 @@ class Agent(ABC):
     ) -> str:
         assignment_id = message.metadata.get("assignment_id", "") if message else ""
 
+        from backend.core.model_routing import resolve_model
+
+        model = resolve_model(self.name, role, self.services.plugin_configs)
+
         async def on_usage(entry: LLMUsageEntry) -> None:
             if self.services.record_llm_usage and self._current_task_id:
                 await self.services.record_llm_usage(
@@ -218,6 +222,7 @@ class Agent(ABC):
                 role=role,
                 agent=self.name,
                 on_usage=on_usage,
+                model=model,
             )
 
         parts: list[str] = []
@@ -228,6 +233,7 @@ class Agent(ABC):
             role=role,
             agent=self.name,
             on_usage=on_usage,
+            model=model,
         ):
             parts.append(chunk)
             await self.services.stream_buffer.append(
@@ -280,6 +286,36 @@ class Agent(ABC):
             },
         )
 
+    async def ask_agent_and_wait(self, to_agent: str, question: str) -> str:
+        """In-process bounded query with direct response (surpass internal A2A)."""
+        from backend.core.a2a_policy import check_a2a_query, record_a2a_query
+
+        task_id = self._current_task_id
+        task = await self.task_store.get(task_id) if task_id and self.task_store else None
+        ctx = dict(task.context or {}) if task else {}
+        err = check_a2a_query(self.name, to_agent, ctx)
+        if err:
+            raise ValueError(err)
+        if task and self.task_store:
+            await self.task_store.save_context(task_id, record_a2a_query(ctx))
+
+        target = self.services.agents.get(to_agent)
+        if not target:
+            raise ValueError(f"Agent '{to_agent}' is not available in-process")
+
+        message = Message(
+            from_agent=self.name,
+            to_agent=to_agent,
+            content=question,
+            message_type=MessageType.TASK,
+            task_id=task_id,
+            trace_id=task_id,
+            metadata={"intent": MessageIntent.AGENT_QUERY.value},
+        ).with_trace()
+        target._current_task_id = task_id
+        response = await target.think(message)
+        return response or ""
+
     async def _on_message(self, message: Message) -> None:
         message.with_trace()
         await self.inbox.put(message)
@@ -326,6 +362,7 @@ class Agent(ABC):
 
             await self.registry.update_status(self.name, "thinking")
             self._current_task_id = message.task_id or message.metadata.get("task_id", "")
+            task = None
             if self._current_task_id and self.task_store:
                 task = await self.task_store.get(self._current_task_id)
                 if task and task.status == TaskStatus.CANCELLED:
@@ -343,10 +380,12 @@ class Agent(ABC):
                     message_id=message.id,
                 )
                 t0 = time.monotonic()
+                tenant_id = task.tenant_id if task else ""
                 with start_agent_span(
                     self.name,
                     self._current_task_id,
                     message.metadata.get("assignment_id", ""),
+                    tenant_id,
                 ):
                     response = await self.think(message)
                 AGENT_THINK_SECONDS.labels(agent=self.name).observe(time.monotonic() - t0)

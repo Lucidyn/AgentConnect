@@ -1,0 +1,29 @@
+cases:
+  - id: hybrid_report_shape
+    template_id: hybrid_report
+    task: 行业分析
+    checks:
+      agents: [Research, Analyst, Writer, Reviewer]
+      min_nodes: 4
+
+  - id: custom_parallel
+    task: demo task
+    custom_plan:
+      summary: "并行调研：{task}"
+      steps: [Research, Analyst, Writer]
+      assignments:
+        - id: r1
+          agent: Research
+          task: "调研：{task}"
+          depends_on: []
+        - id: a1
+          agent: Analyst
+          task: "分析：{task}"
+          depends_on: []
+        - id: w1
+          agent: Writer
+          task: "写作：{task}"
+          depends_on: [r1, a1]
+    checks:
+      min_nodes: 3
+      agents: [Research, Analyst, Writer]

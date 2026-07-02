@@ -169,6 +169,10 @@ async def init_schema(db: Database) -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency "
             "ON tasks(tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL"
         )
+        await db.execute("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS budget_usd REAL")
+        await db.execute(
+            "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS spent_usd REAL NOT NULL DEFAULT 0"
+        )
     else:
         await db.execute(TASKS_DDL_SQLITE)
         await db.execute(MESSAGES_DDL_SQLITE)
@@ -189,6 +193,12 @@ async def init_schema(db: Database) -> None:
             await db.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT")
         if "tenant_id" not in columns:
             await db.execute("ALTER TABLE tasks ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
+        tenant_rows = await db.fetchall("PRAGMA table_info(tenants)")
+        tenant_columns = {row[1] for row in tenant_rows}
+        if "budget_usd" not in tenant_columns:
+            await db.execute("ALTER TABLE tenants ADD COLUMN budget_usd REAL")
+        if "spent_usd" not in tenant_columns:
+            await db.execute("ALTER TABLE tenants ADD COLUMN spent_usd REAL NOT NULL DEFAULT 0")
         await db.execute("DROP INDEX IF EXISTS idx_tasks_idempotency")
         await db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency "
@@ -209,3 +219,10 @@ async def init_schema(db: Database) -> None:
         "CREATE INDEX IF NOT EXISTS idx_artifacts_task_created ON artifacts(task_id, created_at)"
     )
     await db.commit()
+
+
+async def init_audit_schema(db: Database) -> None:
+    from backend.core.audit_log import AuditLog
+
+    audit = AuditLog(db)
+    await audit.ensure_schema()

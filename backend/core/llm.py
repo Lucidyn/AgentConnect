@@ -77,6 +77,7 @@ class LLMClient:
         role: str = "default",
         agent: str = "",
         on_usage: RecordUsage | None = None,
+        model: str | None = None,
     ) -> str:
         if not self._provider:
             logger.debug("LLM unavailable, using fallback response")
@@ -90,6 +91,7 @@ class LLMClient:
                 user_prompt,
                 max_tokens=int(params["max_tokens"]),
                 temperature=float(params["temperature"]),
+                model=model,
             )
             LLM_REQUESTS.labels(provider=self._provider.name, result="ok").inc()
             return await self._finalize(
@@ -117,6 +119,7 @@ class LLMClient:
         role: str = "default",
         agent: str = "",
         on_usage: RecordUsage | None = None,
+        model: str | None = None,
     ) -> str:
         if not self._provider:
             logger.debug("LLM unavailable, using fallback JSON plan")
@@ -134,6 +137,7 @@ class LLMClient:
                 user_prompt,
                 max_tokens=int(params["max_tokens"]),
                 temperature=float(params["temperature"]),
+                model=model,
             )
             LLM_REQUESTS.labels(provider=self._provider.name, result="ok").inc()
             return await self._finalize(
@@ -161,6 +165,7 @@ class LLMClient:
         role: str = "default",
         agent: str = "",
         on_usage: RecordUsage | None = None,
+        model: str | None = None,
     ):
         if not self._provider:
             LLM_REQUESTS.labels(provider=self.provider_name, result="fallback").inc()
@@ -175,6 +180,7 @@ class LLMClient:
                 user_prompt,
                 max_tokens=int(params["max_tokens"]),
                 temperature=float(params["temperature"]),
+                model=model,
             )
             async for chunk in stream_iter:
                 if chunk:

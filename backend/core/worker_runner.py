@@ -7,6 +7,7 @@ from typing import Any
 
 from backend.constants import PLANNER
 from backend.core.agent import Agent
+from backend.core.otel import start_agent_span
 from backend.core.worker_protocol import WorkerResultEnvelope, WorkerTaskEnvelope
 from backend.models.message import Message, MessageIntent, MessageType
 
@@ -57,8 +58,18 @@ async def execute_assignment(
 
     agent._current_task_id = envelope.task_id
     agent.send = capture_send  # type: ignore[method-assign]
+    tenant_id = ""
+    if agent.task_store:
+        task = await agent.task_store.get(envelope.task_id)
+        tenant_id = task.tenant_id if task else ""
     try:
-        direct = await agent.think(message)
+        with start_agent_span(
+            agent.name,
+            envelope.task_id,
+            envelope.assignment_id,
+            tenant_id,
+        ):
+            direct = await agent.think(message)
         content = direct if direct is not None else captured["content"]
         success = bool(content) and not captured["error"]
         if not content and not success:

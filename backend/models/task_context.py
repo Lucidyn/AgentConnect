@@ -16,6 +16,7 @@ from backend.constants import (
     WRITER,
 )
 from backend.core.llm_usage import LLMUsageEntry
+from backend.models.checkpoint import CheckpointSnapshot
 from backend.models.plan import TaskAssignment, TaskPlan
 
 
@@ -72,6 +73,9 @@ class TaskContext(BaseModel):
     workspace: WorkspaceState = WorkspaceState()
     llm_usage: list[LLMUsageEntry] = Field(default_factory=list)
     assignment_started_at: dict[str, str] = Field(default_factory=dict)
+    checkpoints: list[CheckpointSnapshot] = Field(default_factory=list)
+    a2a_query_count: int = 0
+    pending_downstream: bool = False
 
     def record_result(self, assignment: TaskAssignment, content: str) -> None:
         """Store assignment output and sync legacy named fields."""

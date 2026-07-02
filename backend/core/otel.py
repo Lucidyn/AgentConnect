@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
+from typing import Any, Iterator
 
 from backend.config import settings
 
@@ -49,15 +50,63 @@ def instrument_fastapi(app) -> None:
         logger.warning("FastAPI OTEL instrumentation unavailable")
 
 
+def _set_attrs(span, attributes: dict[str, Any]) -> None:
+    for key, value in attributes.items():
+        if value is not None and value != "":
+            span.set_attribute(key, value)
+
+
 @contextmanager
-def start_agent_span(agent: str, task_id: str = "", assignment_id: str = ""):
+def start_span(name: str, attributes: dict[str, Any] | None = None) -> Iterator[Any]:
     if _tracer is None:
         yield None
         return
-    with _tracer.start_as_current_span("agent.think") as span:
-        span.set_attribute("agent.name", agent)
-        if task_id:
-            span.set_attribute("task.id", task_id)
-        if assignment_id:
-            span.set_attribute("assignment.id", assignment_id)
+    with _tracer.start_as_current_span(name) as span:
+        _set_attrs(span, attributes or {})
+        yield span
+
+
+@contextmanager
+def start_agent_span(
+    agent: str,
+    task_id: str = "",
+    assignment_id: str = "",
+    tenant_id: str = "",
+) -> Iterator[Any]:
+    with start_span(
+        "agent.think",
+        {
+            "agent.name": agent,
+            "task.id": task_id,
+            "assignment.id": assignment_id,
+            "tenant.id": tenant_id,
+        },
+    ) as span:
+        yield span
+
+
+@contextmanager
+def start_orchestration_span(
+    operation: str,
+    *,
+    task_id: str = "",
+    assignment_id: str = "",
+    tenant_id: str = "",
+    agent: str = "",
+) -> Iterator[Any]:
+    with start_span(
+        f"plan.{operation}",
+        {
+            "task.id": task_id,
+            "assignment.id": assignment_id,
+            "tenant.id": tenant_id,
+            "agent.name": agent,
+        },
+    ) as span:
+        yield span
+
+
+@contextmanager
+def start_tool_span(tool_name: str, task_id: str = "") -> Iterator[Any]:
+    with start_span("tool.run", {"tool.name": tool_name, "task.id": task_id}) as span:
         yield span

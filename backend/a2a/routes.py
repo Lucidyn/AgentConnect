@@ -9,6 +9,7 @@ from backend.api.deps import require_role
 from backend.api.schemas import A2AJsonRpcRequest, A2ATaskSendRequest
 from backend.auth import get_auth_context
 from backend.constants import VERSION
+from backend.core.task_stream import iter_a2a_sse_events
 from backend.models.auth import AuthContext, Role
 from backend.models.task import TaskStatus
 from backend.platform import platform
@@ -55,7 +56,7 @@ async def agent_card(request: Request, _: AuthContext = Depends(get_auth_context
                 "description": "Submit a task and receive a multi-agent plan and result.",
             }
         ],
-        "methods": ["tasks/send", "tasks/get", "tasks/cancel"],
+        "methods": ["tasks/send", "tasks/get", "tasks/cancel", "tasks/stream"],
     }
 
 
@@ -114,6 +115,22 @@ async def _cancel_task(*, task_id: str, tenant_id: str, request_id: str | int | 
     if not task:
         return a2a_error(request_id, code=_A2A_NOT_FOUND, message=f"Task '{task_id}' not found"), 404
     return a2a_ok(request_id, {"id": task.id, "status": task_to_a2a_status(task)}), 200
+
+
+@router.get("/tasks/{task_id}/stream")
+async def a2a_tasks_stream(
+    task_id: str,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
+    from fastapi.responses import StreamingResponse
+
+    task = await platform.task_store.get(task_id, tenant_id=auth.tenant_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+    return StreamingResponse(
+        iter_a2a_sse_events(task_id, auth.tenant_id),
+        media_type="text/event-stream",
+    )
 
 
 @router.post("/tasks/send")
@@ -184,6 +201,27 @@ async def a2a_rpc(
             tenant_id=auth.tenant_id,
             request_id=req.id,
         )
+    elif method == "tasks/stream":
+        auth.require(Role.VIEWER)
+        task_id = _task_id_from_params(params)
+        if not task_id:
+            body = a2a_error(req.id, code=_A2A_INVALID, message="Missing task id")
+            status = 400
+        else:
+            task = await platform.task_store.get(task_id, tenant_id=auth.tenant_id)
+            if not task:
+                body = a2a_error(req.id, code=_A2A_NOT_FOUND, message=f"Task '{task_id}' not found")
+                status = 404
+            else:
+                body = a2a_ok(
+                    req.id,
+                    {
+                        "id": task.id,
+                        "stream_url": f"/a2a/tasks/{task_id}/stream",
+                        "status": task_to_a2a_status(task),
+                    },
+                )
+                status = 200
     else:
         body = a2a_error(req.id, code=-32601, message=f"Method not found: {method}")
         status = 404

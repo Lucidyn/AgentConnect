@@ -47,3 +47,33 @@ def task_to_a2a_status(task: TaskRecord) -> dict[str, Any]:
     if task.status in _TERMINAL:
         payload["final"] = True
     return payload
+
+
+def task_to_a2a_stream_event(task: TaskRecord, *, extra: dict | None = None) -> dict[str, Any]:
+    """SSE payload shaped for external A2A consumers."""
+    status = task_to_a2a_status(task)
+    event: dict[str, Any] = {
+        "type": "status-update",
+        "task_id": task.id,
+        "status": status,
+    }
+    if extra:
+        partial = extra.get("partial_result")
+        if partial:
+            parts = list(status.get("message", {}).get("parts") or [])
+            parts.append({"type": "text", "text": str(partial)})
+            status["message"] = {"role": "agent", "parts": parts}
+            event["status"] = status
+        metadata = {
+            key: extra[key]
+            for key in (
+                "queue_position",
+                "estimated_wait_seconds",
+                "streaming_agent",
+                "streaming_assignment",
+            )
+            if key in extra and extra[key] is not None
+        }
+        if metadata:
+            event["metadata"] = metadata
+    return event

@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.api.deps import require_role
-from backend.api.schemas import CreateApiKeyRequest, CreateTenantRequest
+from backend.api.schemas import CreateApiKeyRequest, CreateTenantRequest, TenantBudgetRequest
 from backend.models.auth import DEFAULT_TENANT_ID, AuthContext, Role
 from backend.platform import platform
 
@@ -79,3 +79,19 @@ async def revoke_tenant_key(
     if not await platform.tenant_store.revoke_api_key(tenant_id, key_id):
         raise HTTPException(status_code=404, detail=f"API key '{key_id}' not found")
     return {"revoked": key_id}
+
+
+@router.put("/tenants/{tenant_id}/budget")
+async def set_tenant_budget(
+    tenant_id: str,
+    req: TenantBudgetRequest,
+    auth: AuthContext = Depends(require_role(Role.ADMIN)),
+):
+    if not _can_manage_tenant(auth, tenant_id):
+        raise HTTPException(status_code=403, detail="Cannot set budget for another tenant")
+    if not platform.tenant_store:
+        raise HTTPException(status_code=503, detail="Tenant store unavailable")
+    if not await platform.tenant_store.set_budget_usd(tenant_id, req.budget_usd):
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' not found")
+    tenant = await platform.tenant_store.get_tenant(tenant_id)
+    return {"tenant": tenant}

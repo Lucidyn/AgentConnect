@@ -30,6 +30,19 @@ class ResumeTaskRequest(BaseModel):
     from_assignment: str = Field(default="", max_length=64)
 
 
+class ReplayTaskRequest(BaseModel):
+    checkpoint_id: str = Field(default="", max_length=64)
+    from_assignment: str = Field(default="", max_length=64)
+
+
+class ImportTemplateRequest(BaseModel):
+    template: dict
+
+
+class TenantBudgetRequest(BaseModel):
+    budget_usd: float = Field(ge=0)
+
+
 class TaskResponse(BaseModel):
     task_id: str
     message_id: str

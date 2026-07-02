@@ -74,6 +74,22 @@ class Settings(BaseSettings):
     # HTTP tool plugin (MCP-style fetch)
     http_tool_base_url: str = ""
 
+    # TestRunner sandbox
+    test_runner_pytest: bool = True
+    test_runner_timeout: int = 30
+    test_runner_sandbox: str = "subprocess"  # subprocess | docker | off
+    test_runner_docker_image: str = "python:3.11-slim"
+
+    # Surpass: model routing, budget, replan, marketplace
+    llm_cheap_model: str = ""
+    llm_premium_model: str = ""
+    llm_research_model: str = ""
+    llm_coder_model: str = ""
+    tenant_budget_enabled: bool = False
+    default_tenant_budget_usd: float = 0.0
+    dynamic_replan_enabled: bool = True
+    template_marketplace_dir: str = "data/marketplace"
+
     # OpenTelemetry (optional)
     otel_exporter_otlp_endpoint: str = ""
     otel_service_name: str = "agent-connect"

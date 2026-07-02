@@ -10,11 +10,13 @@ agents:
     module: backend.agents.research
     class: ResearchAgent
     enabled: true
+    model_tier: cheap
     tools: [arxiv, github]
   - name: coder
     module: backend.agents.coder
     class: CoderAgent
     enabled: true
+    model_tier: premium
   - name: writer
     module: backend.agents.writer
     class: WriterAgent
@@ -31,6 +33,9 @@ agents:
     module: backend.agents.test_runner
     class: TestRunnerAgent
     enabled: true
+    pytest_enabled: true
+    sandbox: subprocess
+    timeout: 30
   - name: reviewer
     module: backend.agents.reviewer
     class: ReviewerAgent
@@ -75,3 +80,11 @@ tools:
     enabled: true
     base_url: ""
     path: /
+
+# External MCP servers (HTTP JSON-RPC). Disabled by default — set url to enable.
+mcp_servers:
+  - name: example
+    url: ""
+    enabled: false
+    prefix: example
+    timeout: 30

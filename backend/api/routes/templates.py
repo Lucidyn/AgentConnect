@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.api.deps import require_role
-from backend.api.schemas import SaveTemplateRequest, ValidatePlanRequest
+from backend.api.schemas import ImportTemplateRequest, SaveTemplateRequest, ValidatePlanRequest
 from backend.core.plan_templates import get_template, list_templates, plan_from_custom
 from backend.core.saved_templates import delete_saved, get_saved, list_saved, save_template
 from backend.models.auth import AuthContext, Role
@@ -18,6 +18,57 @@ async def list_plan_templates(auth: AuthContext = Depends(require_role(Role.VIEW
     builtin = list_templates()
     saved = list_saved(tenant_id=auth.tenant_id)
     return {"templates": builtin + saved}
+
+
+@router.get("/marketplace")
+async def list_marketplace_templates(_: AuthContext = Depends(require_role(Role.VIEWER))):
+    from backend.core.template_marketplace import list_marketplace
+
+    return {"templates": list_marketplace()}
+
+
+@router.post("/marketplace/{template_id}/fork")
+async def fork_marketplace_template(
+    template_id: str,
+    auth: AuthContext = Depends(require_role(Role.OPERATOR)),
+):
+    from backend.core.template_marketplace import fork_marketplace_template
+
+    payload = fork_marketplace_template(template_id, auth.tenant_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail=f"Marketplace template '{template_id}' not found")
+    return {"template": payload}
+
+
+@router.get("/saved/{template_id}/export")
+async def export_saved_template(
+    template_id: str,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
+    from backend.core.template_marketplace import export_saved_template
+
+    payload = export_saved_template(template_id, auth.tenant_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail=f"Saved template '{template_id}' not found")
+    return payload
+
+
+@router.post("/import")
+async def import_template(
+    req: ImportTemplateRequest,
+    auth: AuthContext = Depends(require_role(Role.OPERATOR)),
+):
+    from backend.core.template_marketplace import import_template_payload
+
+    payload = import_template_payload(req.template, auth.tenant_id)
+    return {"template": payload}
+
+
+@router.get("/eval/run")
+async def run_template_evals(_: AuthContext = Depends(require_role(Role.VIEWER))):
+    from backend.core.eval_harness import run_all_evals
+
+    return run_all_evals()
 
 
 @router.get("/saved")

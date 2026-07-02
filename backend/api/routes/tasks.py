@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime
 
@@ -10,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import Response
 
 from backend.api.deps import clamp_limit, require_role
-from backend.api.schemas import ApprovalRequest, ResumeTaskRequest, TaskRequest, TaskResponse
+from backend.api.schemas import ApprovalRequest, ReplayTaskRequest, ResumeTaskRequest, TaskRequest, TaskResponse
 from backend.config import settings
 from backend.core.llm_usage import estimate_cost, merge_usage
 from backend.models.auth import AuthContext, Role
@@ -270,39 +269,45 @@ async def stream_task(
 ):
     from fastapi.responses import StreamingResponse
 
+    from backend.core.task_stream import iter_task_sse_events
+
     await _task_for_tenant(task_id, auth.tenant_id)
+    return StreamingResponse(
+        iter_task_sse_events(task_id, auth.tenant_id),
+        media_type="text/event-stream",
+    )
 
-    async def events():
-        last: str | None = None
-        while True:
-            current = await platform.task_store.get(task_id, tenant_id=auth.tenant_id)
-            if not current:
-                yield f"data: {json.dumps({'error': 'not found'})}\n\n"
-                break
-            payload = {
-                "task_id": task_id,
-                "status": current.status.value,
-                "result": current.result,
-            }
-            queue = await platform.task_store.get_queue_info(task_id)
-            payload.update(queue)
-            if current.status == TaskStatus.WAITING_APPROVAL:
-                payload["approval_message"] = (current.context or {}).get("approval_message", "")
-            stream = await platform.stream_buffer.snapshot(task_id)
-            payload.update(stream)
-            line = json.dumps(payload, ensure_ascii=False)
-            if line != last:
-                yield f"data: {line}\n\n"
-                last = line
-            if current.status in (
-                TaskStatus.COMPLETED,
-                TaskStatus.FAILED,
-                TaskStatus.CANCELLED,
-            ):
-                break
-            await asyncio.sleep(1)
 
-    return StreamingResponse(events(), media_type="text/event-stream")
+@router.post("/{task_id}/replay")
+async def replay_task(
+    task_id: str,
+    req: ReplayTaskRequest | None = None,
+    auth: AuthContext = Depends(require_role(Role.OPERATOR)),
+):
+    checkpoint_id = req.checkpoint_id if req else ""
+    from_assignment = req.from_assignment if req else ""
+    task = await platform.replay_task(
+        task_id,
+        checkpoint_id=checkpoint_id,
+        from_assignment=from_assignment,
+        tenant_id=auth.tenant_id,
+    )
+    if not task:
+        raise HTTPException(status_code=409, detail=f"Task '{task_id}' cannot be replayed")
+    return {"task": task.model_dump()}
+
+
+@router.get("/{task_id}/checkpoints")
+async def list_checkpoints(
+    task_id: str,
+    auth: AuthContext = Depends(require_role(Role.VIEWER)),
+):
+    task = await _task_for_tenant(task_id, auth.tenant_id)
+    ctx = TaskContext.model_validate(task.context or {})
+    return {
+        "task_id": task_id,
+        "checkpoints": [item.model_dump() for item in ctx.checkpoints],
+    }
 
 
 @router.post("/{task_id}/resume")
@@ -357,15 +362,18 @@ async def submit_task(
     auth: AuthContext = Depends(require_role(Role.OPERATOR)),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    task, message = await platform.submit_task(
-        req.task,
-        idempotency_key or "",
-        tenant_id=auth.tenant_id,
-        template_id=req.template_id,
-        custom_plan=req.custom_plan,
-        collaboration_mode=req.collaboration_mode,
-        negotiation=req.negotiation,
-    )
+    try:
+        task, message = await platform.submit_task(
+            req.task,
+            idempotency_key or "",
+            tenant_id=auth.tenant_id,
+            template_id=req.template_id,
+            custom_plan=req.custom_plan,
+            collaboration_mode=req.collaboration_mode,
+            negotiation=req.negotiation,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
     queue = await platform.task_store.get_queue_info(task.id)
     return TaskResponse(
         task_id=task.id,

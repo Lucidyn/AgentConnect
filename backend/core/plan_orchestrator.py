@@ -9,8 +9,12 @@ from typing import TYPE_CHECKING
 from backend.config import settings
 from backend.constants import GATE_AGENTS, PLANNER, REVIEWER
 from backend.core.blackboard import post_entry, record_negotiation
+from backend.core.checkpoints import append_checkpoint
+from backend.core.dynamic_replan import try_failure_replan
 from backend.core.negotiation import run_negotiation_round
+from backend.core.otel import start_orchestration_span
 from backend.core.plan_dispatch import build_assignment_task
+from backend.models.auth import DEFAULT_TENANT_ID
 from backend.models.artifact import Artifact
 from backend.models.message import Message, MessageIntent, MessageType
 from backend.models.plan import AssignmentStatus, TaskAssignment, TaskPlan
@@ -57,6 +61,10 @@ class PlanOrchestrator:
     async def save_ctx(self, ctx: TaskContext) -> None:
         await self._planner._save_ctx(ctx)
 
+    async def _tenant_id(self) -> str:
+        task = await self.task_store.get(self.task_id)
+        return task.tenant_id if task else DEFAULT_TENANT_ID
+
     async def load_plan(self) -> TaskPlan | None:
         return await self._planner._load_plan()
 
@@ -83,28 +91,48 @@ class PlanOrchestrator:
         if increment_attempt:
             assignment.attempt += 1
         task = build_assignment_task(assignment, plan, ctx)
-        dispatcher = self.services.worker_dispatcher
-        if dispatcher:
-            await dispatcher.send_assignment(
-                self._planner, assignment, plan, ctx, task
-            )
-        else:
-            await self._planner.send(
-                assignment.agent,
-                task,
-                message_type=MessageType.TASK,
-                metadata={
-                    "intent": MessageIntent.ASSIGNMENT_START.value,
-                    "assignment_id": assignment.id,
-                    "attempt": assignment.attempt,
-                },
-            )
+        tenant_id = await self._tenant_id()
+        with start_orchestration_span(
+            "dispatch",
+            task_id=self.task_id,
+            assignment_id=assignment.id,
+            tenant_id=tenant_id,
+            agent=assignment.agent,
+        ):
+            dispatcher = self.services.worker_dispatcher
+            if dispatcher:
+                await dispatcher.send_assignment(
+                    self._planner, assignment, plan, ctx, task
+                )
+            else:
+                await self._planner.send(
+                    assignment.agent,
+                    task,
+                    message_type=MessageType.TASK,
+                    metadata={
+                        "intent": MessageIntent.ASSIGNMENT_START.value,
+                        "assignment_id": assignment.id,
+                        "attempt": assignment.attempt,
+                    },
+                )
         ctx.assignment_started_at[assignment.id] = datetime.now(timezone.utc).isoformat()
         await self.save_ctx(ctx)
 
     async def dispatch_ready(self, plan: TaskPlan, ctx: TaskContext) -> int:
         count = 0
         for assignment in plan.pending_ready():
+            if assignment.node_type == "human_approval":
+                assignment.status = AssignmentStatus.RUNNING
+                ctx.approval_message = assignment.task or f"请审批节点 {assignment.id}"
+                ctx.approval_assignment_id = assignment.id
+                ctx.pending_downstream = True
+                await self.save_ctx(ctx)
+                await self.persist_plan(plan)
+                if self.task_store:
+                    await self.task_store.update_status(
+                        self.task_id, TaskStatus.WAITING_APPROVAL
+                    )
+                return count
             await self.send_assignment(assignment, plan, ctx, mark_running=True)
             count += 1
         return count
@@ -124,48 +152,67 @@ class PlanOrchestrator:
             await self.send_assignment(assignment, plan, ctx)
 
     async def on_agent_failed(self, message: Message) -> None:
-        plan = await self.load_plan()
-        if not plan:
-            await self._planner._fail_task(message.content)
-            return
+        tenant_id = await self._tenant_id()
+        with start_orchestration_span(
+            "assignment.failed",
+            task_id=self.task_id,
+            assignment_id=message.metadata.get("assignment_id", ""),
+            tenant_id=tenant_id,
+            agent=message.from_agent,
+        ):
+            plan = await self.load_plan()
+            if not plan:
+                await self._planner._fail_task(message.content)
+                return
 
-        assignment_id = message.metadata.get("assignment_id", "")
-        assignment = plan.find_assignment(
-            assignment_id=assignment_id, agent_name=message.from_agent
-        )
-        if not assignment:
-            await self._planner._fail_task(f"Agent error (unknown assignment): {message.content}")
-            return
-        if is_stale_attempt(message, assignment):
-            return
-        if assignment.status not in (AssignmentStatus.RUNNING, AssignmentStatus.PENDING):
-            return
+            assignment_id = message.metadata.get("assignment_id", "")
+            assignment = plan.find_assignment(
+                assignment_id=assignment_id, agent_name=message.from_agent
+            )
+            if not assignment:
+                await self._planner._fail_task(
+                    f"Agent error (unknown assignment): {message.content}"
+                )
+                return
+            if is_stale_attempt(message, assignment):
+                return
+            if assignment.status not in (AssignmentStatus.RUNNING, AssignmentStatus.PENDING):
+                return
 
-        ctx = await self.load_ctx()
-        retries = ctx.assignment_retries.get(assignment.id, 0)
-        max_retries = settings.assignment_max_retries
+            ctx = await self.load_ctx()
+            retries = ctx.assignment_retries.get(assignment.id, 0)
+            max_retries = settings.assignment_max_retries
 
-        logger.warning(
-            "[%s] assignment %s failed (retry %d/%d): %s",
-            message.from_agent,
-            assignment.id,
-            retries,
-            max_retries,
-            message.content[:200],
-        )
+            logger.warning(
+                "[%s] assignment %s failed (retry %d/%d): %s",
+                message.from_agent,
+                assignment.id,
+                retries,
+                max_retries,
+                message.content[:200],
+            )
 
-        if retries < max_retries:
-            ctx.assignment_retries[assignment.id] = retries + 1
-            assignment.status = AssignmentStatus.PENDING
-            await self.save_ctx(ctx)
-            await self.persist_and_dispatch(plan, ctx)
-            return
+            if retries < max_retries:
+                ctx.assignment_retries[assignment.id] = retries + 1
+                assignment.status = AssignmentStatus.PENDING
+                await self.save_ctx(ctx)
+                await self.persist_and_dispatch(plan, ctx)
+                return
 
-        assignment.status = AssignmentStatus.FAILED
-        await self.persist_plan(plan)
-        await self._planner._fail_task(
-            f"子任务 {assignment.id} ({assignment.agent}) 失败：{message.content}"
-        )
+            if try_failure_replan(plan, ctx, assignment, message.content):
+                assignment.status = AssignmentStatus.PENDING
+                await self.save_ctx(ctx)
+                await self.persist_plan(plan)
+                if self.task_store:
+                    await self.task_store.update_status(self.task_id, TaskStatus.RUNNING)
+                await self.persist_and_dispatch(plan, ctx)
+                return
+
+            assignment.status = AssignmentStatus.FAILED
+            await self.persist_plan(plan)
+            await self._planner._fail_task(
+                f"子任务 {assignment.id} ({assignment.agent}) 失败：{message.content}"
+            )
 
     async def on_retry_request(self, message: Message) -> None:
         await self._quality_retry(
@@ -279,11 +326,14 @@ class PlanOrchestrator:
             return
 
         if assignment_id:
-            plan.mark_done(assignment_id=assignment_id)
+            target = plan.find_assignment(assignment_id=assignment_id)
+            if target and target.status != AssignmentStatus.DONE:
+                plan.mark_done(assignment_id=assignment_id)
         else:
             plan.mark_done(agent_name=REVIEWER)
         ctx.approval_message = ""
         ctx.approval_assignment_id = ""
+        ctx.pending_downstream = False
         await self.save_ctx(ctx)
         if self.task_store:
             await self.task_store.update_status(self.task_id, TaskStatus.RUNNING)
@@ -317,62 +367,84 @@ class PlanOrchestrator:
         if not assignment:
             return
 
-        logger.info(
-            "[%s] task=%s completed %s", message.from_agent, self.task_id, assignment.id
-        )
-
-        ctx = await self.load_ctx()
-        ctx.record_result(assignment, message.content)
-        if ctx.collaboration_mode == "blackboard":
-            post_entry(
-                ctx,
-                author=message.from_agent,
-                content=message.content[:800],
-                entry_type="fact",
-                thread_id=assignment.id,
+        tenant_id = await self._tenant_id()
+        with start_orchestration_span(
+            "assignment.complete",
+            task_id=self.task_id,
+            assignment_id=assignment.id,
+            tenant_id=tenant_id,
+            agent=message.from_agent,
+        ):
+            logger.info(
+                "[%s] task=%s completed %s", message.from_agent, self.task_id, assignment.id
             )
-            for question in _extract_questions(message.content):
+
+            ctx = await self.load_ctx()
+            ctx.record_result(assignment, message.content)
+            append_checkpoint(ctx, plan, assignment.id, label=assignment.agent)
+            if assignment.requires_approval:
+                ctx.approval_message = (
+                    f"请审批 {assignment.agent} 产出：\n{message.content[:800]}"
+                )
+                ctx.approval_assignment_id = assignment.id
+                ctx.pending_downstream = True
+                await self.save_ctx(ctx)
+                await self.persist_plan(plan)
+                if self.task_store:
+                    await self.task_store.update_status(
+                        self.task_id, TaskStatus.WAITING_APPROVAL
+                    )
+                return
+            if ctx.collaboration_mode == "blackboard":
                 post_entry(
                     ctx,
                     author=message.from_agent,
-                    content=question,
-                    entry_type="question",
+                    content=message.content[:800],
+                    entry_type="fact",
                     thread_id=assignment.id,
                 )
-                record_negotiation(
-                    ctx,
-                    f"{message.from_agent} 提出：{question[:120]}",
-                )
-            await run_negotiation_round(self, plan, ctx, assignment)
-        if self.task_store:
-            artifact = await self.task_store.save_artifact(
-                Artifact(
-                    task_id=self.task_id,
-                    assignment_id=assignment.id,
-                    type=f"{assignment.agent.lower()}_result",
-                    content=message.content,
-                    metadata={
-                        "attempt": assignment.attempt,
-                        "message_id": message.id,
-                        "reason": assignment.reason,
-                    },
-                    created_by=message.from_agent,
-                )
-            )
-            ctx.workspace.artifacts.append(artifact.id)
-        await self.save_ctx(ctx)
-
-        if plan.all_done():
-            final = f"所有任务完成！\n{message.content}"
+                for question in _extract_questions(message.content):
+                    post_entry(
+                        ctx,
+                        author=message.from_agent,
+                        content=question,
+                        entry_type="question",
+                        thread_id=assignment.id,
+                    )
+                    record_negotiation(
+                        ctx,
+                        f"{message.from_agent} 提出：{question[:120]}",
+                    )
+                await run_negotiation_round(self, plan, ctx, assignment)
             if self.task_store:
-                await self.task_store.save_result(self.task_id, final)
-                await self.task_store.save_plan(self.task_id, plan.to_context())
-            if self.services.on_task_finished:
-                await self.services.on_task_finished(self.task_id)
-            return
+                artifact = await self.task_store.save_artifact(
+                    Artifact(
+                        task_id=self.task_id,
+                        assignment_id=assignment.id,
+                        type=f"{assignment.agent.lower()}_result",
+                        content=message.content,
+                        metadata={
+                            "attempt": assignment.attempt,
+                            "message_id": message.id,
+                            "reason": assignment.reason,
+                        },
+                        created_by=message.from_agent,
+                    )
+                )
+                ctx.workspace.artifacts.append(artifact.id)
+            await self.save_ctx(ctx)
 
-        await self.redispatch_running_dependents(plan, ctx, assignment.id)
-        await self.persist_and_dispatch(plan, ctx)
+            if plan.all_done():
+                final = f"所有任务完成！\n{message.content}"
+                if self.task_store:
+                    await self.task_store.save_result(self.task_id, final)
+                    await self.task_store.save_plan(self.task_id, plan.to_context())
+                if self.services.on_task_finished:
+                    await self.services.on_task_finished(self.task_id)
+                return
+
+            await self.redispatch_running_dependents(plan, ctx, assignment.id)
+            await self.persist_and_dispatch(plan, ctx)
 
     @staticmethod
     def _find_upstream_producer(

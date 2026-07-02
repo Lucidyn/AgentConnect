@@ -36,6 +36,9 @@ class WorkerPlatform:
         self._bus = InMemoryMessageBus()
 
     async def start(self) -> None:
+        from backend.core.otel import setup_otel
+
+        setup_otel()
         self._database = await create_database()
         await init_schema(self._database)
         self._task_store = TaskStore(self._database)

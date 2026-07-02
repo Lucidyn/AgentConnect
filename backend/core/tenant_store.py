@@ -52,7 +52,23 @@ class TenantStore:
             )
         if settings.api_key:
             await self._ensure_legacy_key(settings.api_key)
+        if settings.tenant_budget_enabled and settings.default_tenant_budget_usd > 0:
+            await self._ensure_tenant_budget(
+                DEFAULT_TENANT_ID, settings.default_tenant_budget_usd
+            )
         await self._db.commit()
+
+    async def _ensure_tenant_budget(self, tenant_id: str, budget_usd: float) -> None:
+        row = await self._db.fetchone(
+            "SELECT budget_usd FROM tenants WHERE id = ?",
+            (tenant_id,),
+        )
+        if row and row[0] is not None:
+            return
+        await self._db.execute(
+            "UPDATE tenants SET budget_usd = ? WHERE id = ?",
+            (budget_usd, tenant_id),
+        )
 
     async def _ensure_legacy_key(self, raw: str) -> None:
         key_hash = hash_api_key(raw)
@@ -83,12 +99,54 @@ class TenantStore:
 
     async def get_tenant(self, tenant_id: str) -> dict[str, Any] | None:
         row = await self._db.fetchone(
-            "SELECT id, name, created_at FROM tenants WHERE id = ?",
+            "SELECT id, name, created_at, budget_usd, spent_usd FROM tenants WHERE id = ?",
             (tenant_id,),
         )
         if not row:
             return None
-        return {"id": row[0], "name": row[1], "created_at": row[2]}
+        return {
+            "id": row[0],
+            "name": row[1],
+            "created_at": row[2],
+            "budget_usd": row[3],
+            "spent_usd": float(row[4] or 0),
+        }
+
+    async def get_budget_usd(self, tenant_id: str) -> float | None:
+        row = await self._db.fetchone(
+            "SELECT budget_usd FROM tenants WHERE id = ?",
+            (tenant_id,),
+        )
+        if not row or row[0] is None:
+            return None
+        return float(row[0])
+
+    async def get_spent_usd(self, tenant_id: str) -> float:
+        row = await self._db.fetchone(
+            "SELECT spent_usd FROM tenants WHERE id = ?",
+            (tenant_id,),
+        )
+        return float(row[0] or 0) if row else 0.0
+
+    async def add_spent_usd(self, tenant_id: str, amount: float) -> None:
+        if amount <= 0:
+            return
+        await self._db.execute(
+            "UPDATE tenants SET spent_usd = COALESCE(spent_usd, 0) + ? WHERE id = ?",
+            (amount, tenant_id),
+        )
+        await self._db.commit()
+
+    async def set_budget_usd(self, tenant_id: str, budget_usd: float) -> bool:
+        row = await self._db.fetchone("SELECT id FROM tenants WHERE id = ?", (tenant_id,))
+        if not row:
+            return False
+        await self._db.execute(
+            "UPDATE tenants SET budget_usd = ? WHERE id = ?",
+            (budget_usd, tenant_id),
+        )
+        await self._db.commit()
+        return True
 
     async def create_api_key(
         self,

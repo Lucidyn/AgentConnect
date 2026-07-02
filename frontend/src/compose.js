@@ -15,6 +15,7 @@ const NODE_W = 132;
     TestRunner: '#84cc16',
     Vision: '#a855f7',
     Legal: '#6366f1',
+    HumanApproval: '#f97316',
     Planner: '#f59e0b',
   };
 
@@ -84,7 +85,9 @@ const NODE_W = 132;
       return `<button type="button" class="palette-agent" data-agent="${name}" style="border-left-color:${color}">
         <span class="dot" style="background:${color}"></span>${name}
       </button>`;
-    }).join('');
+    }).join('') + `<button type="button" class="palette-agent" data-agent="HumanApproval" style="border-left-color:${AGENT_COLORS.HumanApproval}">
+        <span class="dot" style="background:${AGENT_COLORS.HumanApproval}"></span>HumanApproval
+      </button>`;
     els.palette.querySelectorAll('.palette-agent').forEach(btn => {
       btn.addEventListener('click', () => {
         const rect = els.wrap?.getBoundingClientRect();
@@ -101,7 +104,9 @@ const NODE_W = 132;
     const node = {
       id,
       agent,
-      task: partial.task || `${agent}：{task}`,
+      node_type: partial.node_type || (agent === 'HumanApproval' ? 'human_approval' : 'agent'),
+      requires_approval: !!partial.requires_approval,
+      task: partial.task || (agent === 'HumanApproval' ? '请审批后继续' : `${agent}：{task}`),
       depends_on: [...(partial.depends_on || [])],
       reason: partial.reason || '',
       x: partial.x ?? 40 + (nodes.length % 4) * (NODE_W + 24),
@@ -194,6 +199,8 @@ const NODE_W = 132;
         task: n.task,
         depends_on: [...n.depends_on],
         reason: n.reason || '',
+        node_type: n.node_type || (n.agent === 'HumanApproval' ? 'human_approval' : 'agent'),
+        requires_approval: !!n.requires_approval,
       })),
     };
   }
@@ -265,6 +272,8 @@ const NODE_W = 132;
     nodes = (tpl.assignments || []).map((a, i) => ({
       id: a.id,
       agent: a.agent,
+      node_type: a.node_type || (a.agent === 'HumanApproval' ? 'human_approval' : 'agent'),
+      requires_approval: !!a.requires_approval,
       task: a.task,
       depends_on: a.depends_on || [],
       reason: a.reason || '',
@@ -445,6 +454,8 @@ const NODE_W = 132;
         <label>任务描述<textarea id="insp-task" rows="3">${escapeHtml(node.task)}</textarea>
           <span class="field-hint">可用 {task} 引用用户输入</span></label>
         <label>调度说明<input id="insp-reason" value="${escapeAttr(node.reason)}" placeholder="可选"></label>
+        <label class="dep-check"><input type="checkbox" id="insp-approval" ${node.requires_approval ? 'checked' : ''}>
+          完成后需人工审批</label>
       </div>
       <div class="inspector-section">
         <div class="section-label">上游依赖（全部完成后才执行）</div>
@@ -485,6 +496,11 @@ const NODE_W = 132;
 
     document.getElementById('insp-reason')?.addEventListener('input', e => {
       node.reason = e.target.value;
+      syncJson();
+    });
+
+    document.getElementById('insp-approval')?.addEventListener('change', e => {
+      node.requires_approval = e.target.checked;
       syncJson();
     });
 

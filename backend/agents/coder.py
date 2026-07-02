@@ -38,6 +38,17 @@ class CoderAgent(Agent):
 
         shared = await self.recall_shared(task)
         research = self.recall("research_context", "")
+        if not research and "调研结果" not in task:
+            try:
+                answer = await self.ask_agent_and_wait(
+                    "Research",
+                    f"请简要调研与以下编码任务相关的 API/库/最佳实践：\n{task[:500]}",
+                )
+                if answer:
+                    research = answer
+                    self.remember("research_context", research)
+            except ValueError:
+                pass
         context_parts = [p for p in (research, shared) if p]
         context = "\n\n".join(context_parts)
 

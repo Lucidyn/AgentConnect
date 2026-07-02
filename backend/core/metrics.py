@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
-TASKS_SUBMITTED = Counter("ac_tasks_submitted_total", "Tasks submitted")
-TASKS_FINISHED = Counter("ac_tasks_finished_total", "Tasks finished", ["status"])
+TASKS_SUBMITTED = Counter("ac_tasks_submitted_total", "Tasks submitted", ["tenant_id"])
+TASKS_FINISHED = Counter("ac_tasks_finished_total", "Tasks finished", ["status", "tenant_id"])
 QUEUE_ACTIVE = Gauge("ac_queue_active", "Active tasks in queue")
 QUEUE_QUEUED = Gauge("ac_queue_queued", "Queued tasks waiting")
 MESSAGES_SENT = Counter("ac_messages_sent_total", "Messages published", ["from_agent", "to_agent"])

@@ -13,7 +13,7 @@ from backend.core.agent import Agent
 from backend.core.llm import LLMClient
 from backend.core.message_bus import InMemoryMessageBus, MessageBus, ReliableMessageBus, create_message_bus
 from backend.core.db import create_database
-from backend.core.db.schema import init_schema
+from backend.core.db.schema import init_audit_schema, init_schema
 from backend.core.message_outbox import MessageOutbox
 from backend.core.replica import get_replica_id
 from backend.core.metrics import (
@@ -39,8 +39,9 @@ from backend.core.worker_stream import create_worker_stream, default_consumer_na
 from backend.models.message import Message, MessageIntent, MessageType
 from backend.models.task import TaskRecord, TaskStatus
 from backend.models.task_context import TaskContext
+from backend.models.plan import TaskPlan
 from backend.core.llm_usage import LLMUsageEntry
-from backend.plugins.loader import load_agent_plugins, load_tool_registry
+from backend.plugins.loader import load_agent_plugins, load_mcp_tools, load_tool_registry
 from backend.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ class Platform:
         self._result_consumer = default_consumer_name()
         self._database = None
         self.stream_buffer = StreamBuffer()
+        self.audit_log = None
 
     @property
     def agent_runtimes(self) -> dict[str, str]:
@@ -82,6 +84,10 @@ class Platform:
         # Re-read paths from settings on each start (supports test isolation).
         self._database = await create_database()
         await init_schema(self._database)
+        await init_audit_schema(self._database)
+        from backend.core.audit_log import AuditLog
+
+        self.audit_log = AuditLog(self._database)
         self.tenant_store = TenantStore(self._database)
         if settings.multi_tenant:
             await self.tenant_store.ensure_default_tenant()
@@ -100,6 +106,9 @@ class Platform:
         self.bus = await create_message_bus(self.message_outbox)
         self.shared_memory = await create_shared_memory()
         self.tools = load_tool_registry(settings.enabled_tools)
+        mcp_count = await load_mcp_tools(self.tools)
+        if mcp_count:
+            logger.info("Loaded %d MCP tool(s)", mcp_count)
         self._running = True
 
         if hasattr(self.bus, "add_global_listener"):
@@ -142,6 +151,7 @@ class Platform:
             worker_hub=worker_hub,
             worker_dispatcher=worker_dispatcher,
             stream_buffer=self.stream_buffer,
+            agents=self.agents,
         )
 
         for cls in mount_classes:
@@ -343,6 +353,29 @@ class Platform:
         ctx = TaskContext.model_validate(task.context or {})
         ctx.llm_usage.append(entry)
         await self.task_store.save_context(task_id, ctx.model_dump(mode="json"))
+        if self.tenant_store:
+            from backend.core.budget import record_usage_spend
+
+            await record_usage_spend(self.tenant_store, task.tenant_id, entry)
+
+    async def _audit(
+        self,
+        *,
+        tenant_id: str,
+        actor: str,
+        action: str,
+        task_id: str = "",
+        detail: dict | None = None,
+    ) -> None:
+        if not self.audit_log:
+            return
+        await self.audit_log.record(
+            tenant_id=tenant_id,
+            actor=actor,
+            action=action,
+            task_id=task_id,
+            detail=detail,
+        )
 
     async def submit_task(
         self,
@@ -357,6 +390,13 @@ class Platform:
     ) -> tuple[TaskRecord, Message | None]:
         if not self.bus or not self.task_queue:
             raise RuntimeError("Platform not started")
+
+        if self.tenant_store:
+            from backend.core.budget import check_submit_budget
+
+            budget_err = await check_submit_budget(self.tenant_store, tenant_id)
+            if budget_err:
+                raise ValueError(budget_err)
 
         key = idempotency_key.strip() or None
         task, should_start = await self.task_queue.enqueue(
@@ -389,11 +429,18 @@ class Platform:
             await self.task_store.save_context(task.id, ctx)
             task = await self.task_store.get(task.id) or task
 
-        TASKS_SUBMITTED.inc()
+        TASKS_SUBMITTED.labels(tenant_id=tenant_id).inc()
         if not should_start:
             return task, None
 
         message = await self._dispatch_task(task)
+        await self._audit(
+            tenant_id=tenant_id,
+            actor="operator",
+            action="task.submit",
+            task_id=task.id,
+            detail={"input_preview": user_input[:120]},
+        )
         return task, message
 
     async def refresh_metrics(self) -> None:
@@ -428,6 +475,13 @@ class Platform:
         ).with_trace()
         await self.bus.publish(message)
         await self.task_store.log_message(message)
+        await self._audit(
+            tenant_id=task.tenant_id,
+            actor="operator",
+            action=f"task.approve.{action}",
+            task_id=task_id,
+            detail={"assignment_id": ctx.get("approval_assignment_id", "")},
+        )
         return await self.task_store.get(task_id, tenant_id=tenant_id)
 
     async def resume_task(
@@ -455,6 +509,69 @@ class Platform:
         ).with_trace()
         await self.bus.publish(message)
         await self.task_store.log_message(message)
+        await self._audit(
+            tenant_id=task.tenant_id,
+            actor="operator",
+            action="task.resume",
+            task_id=task_id,
+            detail={"from_assignment": from_assignment},
+        )
+        return await self.task_store.get(task_id, tenant_id=tenant_id)
+
+    async def replay_task(
+        self,
+        task_id: str,
+        *,
+        checkpoint_id: str = "",
+        from_assignment: str = "",
+        tenant_id: str | None = None,
+    ) -> TaskRecord | None:
+        task = await self.task_store.get(task_id, tenant_id=tenant_id)
+        if not task or not self.bus:
+            return None
+
+        ctx = TaskContext.model_validate(task.context or {})
+        plan = TaskPlan.from_record(task.plan) if task.plan else None
+        if not plan:
+            return None
+
+        target_assignment = from_assignment
+        if checkpoint_id:
+            from backend.core.checkpoints import find_checkpoint
+
+            snapshot = find_checkpoint(ctx, checkpoint_id)
+            if not snapshot:
+                return None
+            plan = TaskPlan.from_record(snapshot.plan) or plan
+            ctx.results = dict(snapshot.results)
+            target_assignment = snapshot.assignment_id
+
+        if target_assignment:
+            reset_ids = plan.reset_from_assignment(target_assignment, cascade=True)
+            for reset_id in reset_ids:
+                ctx.results.pop(reset_id, None)
+
+        await self.task_store.save_plan(task_id, plan.to_context())
+        await self.task_store.save_context(task_id, ctx.model_dump(mode="json"))
+        await self.task_store.update_status(task_id, TaskStatus.RUNNING)
+
+        message = Message(
+            from_agent="User",
+            to_agent=PLANNER,
+            content="replay",
+            message_type=MessageType.TASK,
+            task_id=task_id,
+            metadata={"resume_from": target_assignment, "replay": True},
+        ).with_trace()
+        await self.bus.publish(message)
+        await self.task_store.log_message(message)
+        await self._audit(
+            tenant_id=task.tenant_id,
+            actor="operator",
+            action="task.replay",
+            task_id=task_id,
+            detail={"checkpoint_id": checkpoint_id, "from_assignment": target_assignment},
+        )
         return await self.task_store.get(task_id, tenant_id=tenant_id)
 
     async def cancel_task(self, task_id: str, tenant_id: str | None = None) -> TaskRecord | None:

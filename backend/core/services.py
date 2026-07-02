@@ -32,3 +32,4 @@ class AgentServices:
     worker_hub: "WorkerStreamHub | None" = None
     worker_dispatcher: "WorkerDispatcher | None" = None
     stream_buffer: "StreamBuffer | None" = None
+    agents: dict[str, Any] = field(default_factory=dict)

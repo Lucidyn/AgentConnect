@@ -42,6 +42,14 @@ def _load_manifest() -> dict[str, Any] | None:
         return yaml.safe_load(f) or {}
 
 
+def load_manifest_entries(section: str) -> list[dict[str, Any]]:
+    manifest = _load_manifest()
+    if not manifest:
+        return []
+    entries = manifest.get(section) or []
+    return [entry for entry in entries if entry.get("enabled", True)]
+
+
 def _parse_enabled(env_value: str) -> set[str] | None:
     if not env_value.strip():
         return None
@@ -148,3 +156,12 @@ def load_tool_registry(enabled: str = "") -> ToolRegistry:
                 registry.register(tool)
 
     return registry
+
+
+async def load_mcp_tools(registry: ToolRegistry) -> int:
+    from backend.tools.mcp_client import register_mcp_server
+
+    total = 0
+    for entry in load_manifest_entries("mcp_servers"):
+        total += await register_mcp_server(registry, entry)
+    return total

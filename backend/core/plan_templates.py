@@ -44,6 +44,8 @@ class PlanTemplate(BaseModel):
                     task=item.get("task", task).format(task=task),
                     depends_on=item.get("depends_on", []),
                     reason=item.get("reason", ""),
+                    node_type=item.get("node_type", "agent"),
+                    requires_approval=bool(item.get("requires_approval", False)),
                 )
             )
         return TaskPlan(
@@ -135,6 +137,8 @@ def plan_from_custom(custom: dict[str, Any], task: str, registry: AgentRegistry 
                 task=task_text,
                 depends_on=item.get("depends_on", []),
                 reason=item.get("reason", ""),
+                node_type=item.get("node_type", "agent"),
+                requires_approval=bool(item.get("requires_approval", False)),
             )
         )
     summary = custom.get("summary", f"自定义计划：{task}")

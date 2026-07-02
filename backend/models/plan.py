@@ -19,6 +19,8 @@ class TaskAssignment(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     attempt: int = 0
     reason: str = ""
+    node_type: str = "agent"  # agent | human_approval
+    requires_approval: bool = False
 
 
 class TaskPlan(BaseModel):

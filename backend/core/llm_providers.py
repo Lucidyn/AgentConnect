@@ -70,6 +70,7 @@ class LLMProvider(ABC):
         *,
         max_tokens: int,
         temperature: float,
+        model: str | None = None,
     ) -> ChatResult: ...
 
     async def chat_json(
@@ -144,10 +145,11 @@ class OpenAIProvider(LLMProvider):
         *,
         max_tokens: int,
         temperature: float,
+        model: str | None = None,
     ) -> ChatResult:
         response = await _with_timeout(
             self._client.chat.completions.create(
-                model=settings.openai_model,
+                model=model or settings.openai_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -157,7 +159,7 @@ class OpenAIProvider(LLMProvider):
             ),
             settings.llm_timeout_seconds,
         )
-        return _usage_from_openai(response, settings.openai_model)
+        return _usage_from_openai(response, model or settings.openai_model)
 
     async def chat_stream_with_usage(
         self,
@@ -166,10 +168,11 @@ class OpenAIProvider(LLMProvider):
         *,
         max_tokens: int,
         temperature: float,
+        model: str | None = None,
     ) -> tuple[AsyncIterator[str], ChatResult | None]:
         stream = await _with_timeout(
             self._client.chat.completions.create(
-                model=settings.openai_model,
+                model=model or settings.openai_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -200,7 +203,7 @@ class OpenAIProvider(LLMProvider):
                         prompt_tokens=prompt,
                         completion_tokens=completion,
                         total_tokens=total,
-                        model=settings.openai_model,
+                        model=model or settings.openai_model,
                     )
 
         return _iter(), holder
@@ -212,12 +215,14 @@ class OpenAIProvider(LLMProvider):
         *,
         max_tokens: int,
         temperature: float,
+        model: str | None = None,
     ) -> AsyncIterator[str]:
         stream_iter, _ = await self.chat_stream_with_usage(
             system_prompt,
             user_prompt,
             max_tokens=max_tokens,
             temperature=temperature,
+            model=model,
         )
         async for chunk in stream_iter:
             yield chunk
@@ -229,10 +234,11 @@ class OpenAIProvider(LLMProvider):
         *,
         max_tokens: int,
         temperature: float,
+        model: str | None = None,
     ) -> ChatResult:
         response = await _with_timeout(
             self._client.chat.completions.create(
-                model=settings.openai_model,
+                model=model or settings.openai_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -243,7 +249,7 @@ class OpenAIProvider(LLMProvider):
             ),
             settings.llm_timeout_seconds,
         )
-        return _usage_from_openai(response, settings.openai_model)
+        return _usage_from_openai(response, model or settings.openai_model)
 
 
 class AnthropicProvider(LLMProvider):
