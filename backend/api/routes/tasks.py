@@ -258,6 +258,8 @@ async def get_task_workspace(
         "negotiation": ctx.get("negotiation", False),
         "negotiation_state": ctx.get("negotiation_state", {}),
         "workspace": workspace,
+        "workspace_path": ctx.get("workspace_path", ""),
+        "workspace_files_written": ctx.get("workspace_files_written", []),
         "plan": task.plan,
     }
 

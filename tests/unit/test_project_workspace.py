@@ -5,6 +5,8 @@ import pytest
 from backend.core.project_workspace import (
     apply_file_blocks,
     build_tree_summary,
+    check_workspace_path,
+    get_or_build_tree_summary,
     parse_file_blocks,
     resolve_workspace_path,
     write_text_file,
@@ -34,6 +36,13 @@ def test_resolve_creates_missing_dir_when_enabled(workspace_root):
     assert target.is_dir()
 
 
+def test_check_workspace_path_allows_future_create(workspace_root):
+    target = workspace_root / "future"
+    result = check_workspace_path(str(target))
+    assert result.valid is True
+    assert result.will_create is True
+
+
 def test_parse_file_blocks_with_path_in_fence():
     content = "```python src/app.py\nprint('hi')\n```"
     blocks = parse_file_blocks(content)
@@ -57,3 +66,25 @@ def test_build_tree_summary_includes_readme(workspace_root):
 def test_write_rejects_traversal(workspace_root):
     with pytest.raises(ValueError, match="非法相对路径"):
         write_text_file(workspace_root, "../escape.py", "bad")
+
+
+def test_write_rejects_env_file(workspace_root):
+    with pytest.raises(ValueError, match="敏感文件"):
+        write_text_file(workspace_root, ".env", "SECRET=1")
+
+
+def test_write_rejects_disallowed_extension(workspace_root):
+    with pytest.raises(ValueError, match="不允许的文件类型"):
+        write_text_file(workspace_root, "bin/evil.exe", "data")
+
+
+def test_get_or_build_tree_summary_uses_cache(workspace_root):
+    (workspace_root / "README.md").write_text("# cached", encoding="utf-8")
+    tree = build_tree_summary(workspace_root)
+    cached = get_or_build_tree_summary(
+        workspace_root,
+        cached=tree,
+        cached_path=str(workspace_root.resolve()),
+    )
+    assert cached == tree
+    assert "# cached" in cached

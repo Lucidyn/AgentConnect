@@ -64,6 +64,9 @@ def build_assignment_task(
             "（Coder 可直接读写该目录；TestRunner 在该目录运行 pytest）"
         )
 
+    if ctx.last_test_failure_summary and assignment.agent == "Coder":
+        parts.append(f"上次测试失败摘要：\n{ctx.last_test_failure_summary}")
+
     if ctx.collaboration_mode == "blackboard":
         board = format_blackboard(ctx.workspace)
         if board:

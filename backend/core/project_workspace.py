@@ -49,6 +49,52 @@ class WorkspaceWriteResult:
     skipped: list[str] = field(default_factory=list)
 
 
+@dataclass
+class WorkspaceCheckResult:
+    valid: bool
+    detail: str
+    path: str = ""
+    will_create: bool = False
+
+
+_BLOCKED_BASENAMES = frozenset({
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    "credentials.json",
+    "secrets.json",
+    "id_rsa",
+    "id_dsa",
+})
+
+_ALLOWED_BASENAMES = frozenset({
+    "makefile",
+    "dockerfile",
+    "readme",
+    "license",
+    "gitignore",
+})
+
+_DEFAULT_EXTENSIONS = frozenset({
+    ".py",
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".md",
+    ".txt",
+    ".ini",
+    ".cfg",
+    ".sh",
+    ".sql",
+    ".html",
+    ".css",
+    ".js",
+    ".ts",
+})
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -65,8 +111,7 @@ def allowed_workspace_roots() -> list[Path]:
     return [_repo_root().resolve(), Path.cwd().resolve()]
 
 
-def resolve_workspace_path(raw: str, *, create: bool = False) -> Path:
-    """Resolve and validate a workspace path against allowed roots."""
+def _normalize_workspace_path(raw: str) -> Path:
     text = (raw or "").strip()
     if not text:
         raise ValueError("工作区路径不能为空")
@@ -75,18 +120,59 @@ def resolve_workspace_path(raw: str, *, create: bool = False) -> Path:
         path = (Path.cwd() / path).resolve()
     else:
         path = path.resolve()
+    return path
+
+
+def _path_under_allowed_roots(path: Path, allowed: list[Path]) -> bool:
+    return any(path == root or root in path.parents for root in allowed)
+
+
+def check_workspace_path(raw: str) -> WorkspaceCheckResult:
+    """Validate a workspace path without creating directories."""
+    text = (raw or "").strip()
+    if not text:
+        return WorkspaceCheckResult(valid=False, detail="请填写工作区路径")
 
     if not settings.workspace_enabled:
-        raise ValueError("工作区功能未启用（WORKSPACE_ENABLED=false）")
+        return WorkspaceCheckResult(valid=False, detail="工作区功能未启用（WORKSPACE_ENABLED=false）")
+
+    try:
+        path = _normalize_workspace_path(text)
+    except (OSError, ValueError) as exc:
+        return WorkspaceCheckResult(valid=False, detail=str(exc))
 
     allowed = allowed_workspace_roots()
-    if not any(path == root or root in path.parents for root in allowed):
+    if not _path_under_allowed_roots(path, allowed):
         allowed_text = ", ".join(str(r) for r in allowed)
-        raise ValueError(f"工作区路径不在允许范围内。允许根目录：{allowed_text}")
+        return WorkspaceCheckResult(
+            valid=False,
+            detail=f"工作区路径不在允许范围内。允许根目录：{allowed_text}",
+        )
 
     if path.exists():
         if not path.is_dir():
-            raise ValueError("工作区路径必须是目录")
+            return WorkspaceCheckResult(valid=False, detail="工作区路径必须是目录")
+        return WorkspaceCheckResult(valid=True, detail="", path=str(path))
+
+    if settings.workspace_create_if_missing:
+        return WorkspaceCheckResult(
+            valid=True,
+            detail="目录尚不存在，提交时将自动创建",
+            path=str(path),
+            will_create=True,
+        )
+
+    return WorkspaceCheckResult(valid=False, detail=f"工作区目录不存在：{path}")
+
+
+def resolve_workspace_path(raw: str, *, create: bool = False) -> Path:
+    """Resolve and validate a workspace path against allowed roots."""
+    check = check_workspace_path(raw)
+    if not check.valid:
+        raise ValueError(check.detail)
+    path = Path(check.path)
+
+    if path.exists():
         return path
 
     if create and settings.workspace_create_if_missing:
@@ -94,7 +180,61 @@ def resolve_workspace_path(raw: str, *, create: bool = False) -> Path:
         logger.info("Created workspace directory: %s", path)
         return path
 
-    raise ValueError(f"工作区目录不存在：{path}")
+    raise ValueError(check.detail or f"工作区目录不存在：{path}")
+
+
+def _allowed_extensions() -> frozenset[str]:
+    raw = (settings.workspace_allowed_extensions or "").strip()
+    if not raw:
+        return _DEFAULT_EXTENSIONS
+    return frozenset(
+        part.strip().lower() if part.strip().startswith(".") else f".{part.strip().lower()}"
+        for part in raw.split(",")
+        if part.strip()
+    )
+
+
+def validate_write_path(
+    rel_path: str,
+    content: str,
+    *,
+    files_already_written: int = 0,
+) -> None:
+    """Raise ValueError if a workspace write should be rejected."""
+    rel = rel_path.strip().lstrip("/").replace("\\", "/")
+    if not rel:
+        raise ValueError("空路径")
+
+    name = Path(rel).name
+    lower_name = name.lower()
+    if lower_name in _BLOCKED_BASENAMES:
+        raise ValueError(f"禁止写入敏感文件：{rel}")
+    if lower_name.endswith((".pem", ".key", ".p12", ".pfx")):
+        raise ValueError(f"禁止写入密钥文件：{rel}")
+
+    suffix = Path(rel).suffix.lower()
+    if suffix not in _allowed_extensions() and lower_name not in _ALLOWED_BASENAMES:
+        allowed = ", ".join(sorted(_allowed_extensions()))
+        raise ValueError(f"不允许的文件类型：{rel}（允许：{allowed} 或常见无后缀名如 Makefile）")
+
+    size = len(content.encode("utf-8"))
+    if size > settings.workspace_max_write_bytes:
+        raise ValueError(f"单文件过大：{rel}（{size} bytes）")
+
+    if files_already_written >= settings.workspace_max_files_per_task:
+        raise ValueError(f"已达单任务写入上限（{settings.workspace_max_files_per_task} 个文件）")
+
+
+def get_or_build_tree_summary(root: Path, cached: str = "", cached_path: str = "") -> str:
+    """Return cached tree summary when path unchanged and caching enabled."""
+    root_str = str(root.resolve())
+    if (
+        settings.workspace_tree_cache_enabled
+        and cached
+        and cached_path == root_str
+    ):
+        return cached
+    return build_tree_summary(root)
 
 
 def _safe_relative(root: Path, rel: str) -> Path:
@@ -117,9 +257,16 @@ def read_text_file(root: Path, rel_path: str) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def write_text_file(root: Path, rel_path: str, content: str) -> None:
+def write_text_file(
+    root: Path,
+    rel_path: str,
+    content: str,
+    *,
+    files_already_written: int = 0,
+) -> None:
     if not settings.workspace_write_enabled:
         raise ValueError("工作区写入未启用（WORKSPACE_WRITE_ENABLED=false）")
+    validate_write_path(rel_path, content, files_already_written=files_already_written)
     target = _safe_relative(root, rel_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
@@ -211,15 +358,27 @@ def parse_file_blocks(content: str) -> list[tuple[str, str]]:
     return blocks
 
 
-def apply_file_blocks(root: Path, content: str) -> WorkspaceWriteResult:
+def apply_file_blocks(
+    root: Path,
+    content: str,
+    *,
+    files_already_written: int = 0,
+) -> WorkspaceWriteResult:
     result = WorkspaceWriteResult()
     blocks = parse_file_blocks(content)
     if not blocks:
         return result
+    written_count = files_already_written
     for rel, code in blocks:
         try:
-            write_text_file(root, rel, code.rstrip() + "\n")
+            write_text_file(
+                root,
+                rel,
+                code.rstrip() + "\n",
+                files_already_written=written_count,
+            )
             result.written.append(rel)
+            written_count += 1
         except (ValueError, OSError) as exc:
             logger.warning("Skip write %s: %s", rel, exc)
             result.skipped.append(f"{rel}: {exc}")

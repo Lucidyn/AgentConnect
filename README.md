@@ -168,6 +168,7 @@ WORKSPACE_ENABLED=true
 WORKSPACE_ALLOWED_ROOTS=          # 逗号分隔；留空 = 仓库根 + 当前 cwd
 WORKSPACE_CREATE_IF_MISSING=true
 WORKSPACE_WRITE_ENABLED=true
+WORKSPACE_TEST_LOOP_MAX_ITERATIONS=5   # 有工作区时 Coder↔TestRunner 循环上限
 
 # Phase 3 — 分布式 Worker + 水平扩展
 DISTRIBUTED_WORKERS=false

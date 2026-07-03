@@ -81,6 +81,8 @@ class TaskContext(BaseModel):
     workspace_path: str = ""
     workspace_write_enabled: bool = True
     workspace_files_written: list[str] = Field(default_factory=list)
+    workspace_tree_summary: str = ""
+    last_test_failure_summary: str = ""
 
     def record_result(self, assignment: TaskAssignment, content: str) -> None:
         """Store assignment output and sync legacy named fields."""

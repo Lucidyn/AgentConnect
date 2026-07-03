@@ -18,23 +18,17 @@ async def validate_workspace(
     path: str = "",
     _: AuthContext = Depends(require_role(Role.VIEWER)),
 ):
-    from backend.core.project_workspace import allowed_workspace_roots, resolve_workspace_path
+    from backend.core.project_workspace import allowed_workspace_roots, check_workspace_path
 
-    if not path.strip():
-        return {
-            "valid": False,
-            "detail": "请填写工作区路径",
-            "allowed_roots": [str(p) for p in allowed_workspace_roots()],
-        }
-    try:
-        resolved = resolve_workspace_path(path, create=False)
-        return {"valid": True, "path": str(resolved), "allowed_roots": [str(p) for p in allowed_workspace_roots()]}
-    except ValueError as exc:
-        return {
-            "valid": False,
-            "detail": str(exc),
-            "allowed_roots": [str(p) for p in allowed_workspace_roots()],
-        }
+    roots = [str(p) for p in allowed_workspace_roots()]
+    result = check_workspace_path(path)
+    return {
+        "valid": result.valid,
+        "detail": result.detail,
+        "path": result.path,
+        "will_create": result.will_create,
+        "allowed_roots": roots,
+    }
 
 
 @router.get("/runtimes", dependencies=[Depends(get_auth_context)])

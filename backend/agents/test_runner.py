@@ -15,6 +15,7 @@ from pathlib import Path
 from backend.config import settings
 from backend.constants import TEST_RUNNER
 from backend.core.agent import Agent
+from backend.core.pytest_report import format_pytest_result
 from backend.models.message import Message
 
 logger = logging.getLogger(__name__)
@@ -122,13 +123,13 @@ class TestRunnerAgent(Agent):
         output = self._execute_pytest(root)
         if output is None:
             return None
-        passed = output.returncode == 0
-        verdict = "通过" if passed else "失败"
-        status = "PASSED" if passed else "FAILED"
-        body = (output.stdout or "") + (output.stderr or "")
-        body = body.strip() or f"pytest exit code {output.returncode}"
-        header = f"工作区：{root}\n"
-        return f"【测试结果】{verdict}\n{status}: pytest (workspace)\n{header}{body[:4000]}"
+        return format_pytest_result(
+            passed=output.returncode == 0,
+            workspace=str(root),
+            stdout=output.stdout or "",
+            stderr=output.stderr or "",
+            exit_code=output.returncode,
+        )
 
     def _run_pytest(self, content: str) -> str | None:
         if not self._pytest_enabled() or self._sandbox_mode() == "off":
@@ -150,12 +151,12 @@ class TestRunnerAgent(Agent):
             output = self._execute_pytest(root)
             if output is None:
                 return None
-            passed = output.returncode == 0
-            verdict = "通过" if passed else "失败"
-            status = "PASSED" if passed else "FAILED"
-            body = (output.stdout or "") + (output.stderr or "")
-            body = body.strip() or f"pytest exit code {output.returncode}"
-            return f"【测试结果】{verdict}\n{status}: pytest\n{body[:4000]}"
+            return format_pytest_result(
+                passed=output.returncode == 0,
+                stdout=output.stdout or "",
+                stderr=output.stderr or "",
+                exit_code=output.returncode,
+            )
 
     def _execute_pytest(self, root: Path) -> subprocess.CompletedProcess[str] | None:
         if shutil.which("pytest") is None:

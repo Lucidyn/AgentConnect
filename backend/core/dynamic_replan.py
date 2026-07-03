@@ -3,8 +3,22 @@
 from __future__ import annotations
 
 from backend.config import settings
+from backend.constants import CODER, TEST_RUNNER
+from backend.core.pytest_report import extract_test_failure_for_retry
 from backend.models.plan import AssignmentStatus, TaskAssignment, TaskPlan
 from backend.models.task_context import TaskContext
+
+
+def find_replan_producer(
+    plan: TaskPlan,
+    assignment: TaskAssignment,
+) -> TaskAssignment | None:
+    """Pick upstream producer to reset — TestRunner failures target Coder only."""
+    if assignment.agent == TEST_RUNNER:
+        coder = plan.find_assignment(agent_name=CODER)
+        if coder:
+            return coder
+    return _find_upstream_producer(plan, assignment)
 
 
 def try_failure_replan(
@@ -21,18 +35,22 @@ def try_failure_replan(
     if retries >= settings.assignment_max_retries:
         return False
 
-    producer = _find_upstream_producer(plan, assignment)
+    producer = find_replan_producer(plan, assignment)
     if not producer:
         return False
 
+    summary = extract_test_failure_for_retry(error) if assignment.agent == TEST_RUNNER else error[:600]
+
     ctx.assignment_retries[assignment.id] = retries + 1
     producer.task = (
-        f"{producer.task}\n\n[自动重规划] 下游 {assignment.agent} 失败，请修正：\n{error[:600]}"
+        f"{producer.task}\n\n[自动重规划] 下游 {assignment.agent} 失败，请修正：\n{summary[:800]}"
     )
     producer.status = AssignmentStatus.PENDING
     plan.reset_from_assignment(producer.id)
     ctx.results.pop(producer.id, None)
-    ctx.retry_feedback = error[:800]
+    ctx.retry_feedback = summary[:1200]
+    if assignment.agent == TEST_RUNNER:
+        ctx.last_test_failure_summary = summary[:2000]
     return True
 
 

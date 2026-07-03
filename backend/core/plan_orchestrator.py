@@ -7,13 +7,14 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from backend.config import settings
-from backend.constants import GATE_AGENTS, PLANNER, REVIEWER
+from backend.constants import CODER, GATE_AGENTS, PLANNER, REVIEWER, TEST_RUNNER
 from backend.core.blackboard import post_entry, record_negotiation
 from backend.core.checkpoints import append_checkpoint
 from backend.core.dynamic_replan import try_failure_replan
 from backend.core.negotiation import run_negotiation_round
 from backend.core.otel import start_orchestration_span
 from backend.core.plan_dispatch import build_assignment_task
+from backend.core.pytest_report import extract_test_failure_for_retry
 from backend.models.auth import DEFAULT_TENANT_ID
 from backend.models.artifact import Artifact
 from backend.models.message import Message, MessageIntent, MessageType
@@ -253,15 +254,28 @@ class PlanOrchestrator:
 
         ctx = await self.load_ctx()
         producer_asg = self._find_upstream_producer(plan, source_asg)
+        if source_asg and source_asg.agent == TEST_RUNNER:
+            coder = plan.find_assignment(agent_name=CODER)
+            if coder:
+                producer_asg = coder
         if not producer_asg:
             logger.warning("Retry requested but no producer assignment found in plan")
             return
 
+        if source_asg and source_asg.agent == TEST_RUNNER:
+            feedback = extract_test_failure_for_retry(feedback)
+            ctx.last_test_failure_summary = feedback[:2000]
+
+        loop_max = (
+            settings.workspace_test_loop_max_iterations
+            if ctx.workspace_path
+            else settings.loop_max_iterations
+        )
         loop = ctx.loops.get(
             producer_asg.id,
-            LoopState(max_iterations=settings.loop_max_iterations),
+            LoopState(max_iterations=loop_max),
         )
-        loop.max_iterations = loop.max_iterations or settings.loop_max_iterations
+        loop.max_iterations = loop.max_iterations or loop_max
         loop.feedback = feedback
         loop.iteration += 1
         ctx.loops[producer_asg.id] = loop

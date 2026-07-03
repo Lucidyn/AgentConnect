@@ -255,6 +255,35 @@
       line-height: 1.55;
       color: var(--muted);
     }
+    .workspace-path-status {
+      margin-top: 0.45rem;
+      font-size: 0.78rem;
+      line-height: 1.45;
+      min-height: 1.2em;
+    }
+    .workspace-path-status.ok { color: var(--success, #10b981); }
+    .workspace-path-status.err { color: var(--danger, #ef4444); }
+    .workspace-path-status.pending { color: var(--muted); }
+    .result-workspace-files {
+      margin-top: 1rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border);
+    }
+    .workspace-result-path {
+      font-size: 0.82rem;
+      margin-bottom: 0.5rem;
+      color: var(--muted);
+    }
+    .workspace-files-list {
+      margin: 0;
+      padding-left: 1.1rem;
+      font-size: 0.82rem;
+    }
+    .workspace-files-empty {
+      margin: 0;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
     .run-block-head {
       font-size: 0.68rem;
       text-transform: uppercase;

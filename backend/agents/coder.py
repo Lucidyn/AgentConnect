@@ -8,7 +8,7 @@ from backend.constants import PLANNER
 from backend.core.agent import Agent
 from backend.core.project_workspace import (
     apply_file_blocks,
-    build_tree_summary,
+    get_or_build_tree_summary,
     resolve_workspace_path,
 )
 from backend.core.query_extract import yolo_model_name
@@ -76,9 +76,24 @@ class CoderAgent(Agent):
         context = "\n\n".join(context_parts)
 
         if workspace_root:
-            tree = build_tree_summary(workspace_root)
+            tree = get_or_build_tree_summary(
+                workspace_root,
+                cached=ctx.workspace_tree_summary,
+                cached_path=ctx.workspace_path,
+            )
+            if tree != ctx.workspace_tree_summary and self.task_store and self._current_task_id:
+                summary = tree
+
+                def _cache_tree(c):
+                    c.workspace_tree_summary = summary
+                    if not c.workspace_path:
+                        c.workspace_path = str(workspace_root)
+
+                await self.task_store.mutate_context(self._current_task_id, _cache_tree)
             system = WORKSPACE_SYSTEM_PROMPT
             user_parts = [tree, f"编码任务：{task}"]
+            if ctx.last_test_failure_summary:
+                user_parts.insert(1, f"上次测试失败：\n{ctx.last_test_failure_summary}")
             if context:
                 user_parts.insert(1, f"背景：\n{context}")
             prompt = "\n\n".join(user_parts)
@@ -100,7 +115,11 @@ class CoderAgent(Agent):
 
         write_note = ""
         if workspace_root and ctx.workspace_write_enabled:
-            applied = apply_file_blocks(workspace_root, result)
+            applied = apply_file_blocks(
+                workspace_root,
+                result,
+                files_already_written=len(ctx.workspace_files_written),
+            )
             if applied.written:
                 write_note = "\n\n【已写入工作区】\n" + "\n".join(f"- {p}" for p in applied.written)
                 result += write_note

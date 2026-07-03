@@ -105,6 +105,11 @@ class Settings(BaseSettings):
     workspace_max_files_in_tree: int = 80
     workspace_max_tree_depth: int = 4
     workspace_max_snippet_files: int = 8
+    workspace_allowed_extensions: str = ""  # comma-separated; empty = built-in code/doc set
+    workspace_max_write_bytes: int = 500_000
+    workspace_max_files_per_task: int = 50
+    workspace_tree_cache_enabled: bool = True
+    workspace_test_loop_max_iterations: int = 5
 
     # Negotiation
     negotiation_max_rounds: int = 2
